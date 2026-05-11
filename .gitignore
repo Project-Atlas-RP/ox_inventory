@@ -2,3 +2,8 @@ modules/logs/**/
 .cfg
 node_modules
 .idea
+
+# atlasrp staging / scratch — not shipped with the resource
+web/images_archive/
+web/free asset images/
+items_archive.txt

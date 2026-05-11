@@ -54,6 +54,31 @@ We do not guarantee compatibility or support for third-party resources.
 - Access gloveboxes and trunks for any vehicle.
 - Random item generation inside dumpsters and unowned vehicles.
 
+## 🔧 Atlas RP Custom API Extensions
+
+### AddItem
+```lua
+exports.ox_inventory:AddItem(inv, item, count, metadata, slot, cb, preventDrop, ignoreWeight)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| inv | number/string | Player source or inventory ID |
+| item | string | Item name |
+| count | number | Amount to add |
+| metadata | table? | Item metadata |
+| slot | number? | Target slot (optional) |
+| cb | function? | Callback function (optional) |
+| preventDrop | boolean? | If true, prevents auto-drop when inventory full (default: false) |
+| ignoreWeight | boolean? | If true, bypasses weight limit (for admin commands) |
+
+**Returns:** `success: boolean, response: string|SlotWithItem|nil`
+
+**Behavior:**
+- By default, if inventory is full (no slots OR over weight), item drops on ground near player
+- Admin commands should pass `preventDrop=true, ignoreWeight=true` to bypass limits
+- atlas_loot tables can have `prevent_drop` enabled to disable auto-drop for specific tables
+
 ## Copyright
 
 Copyright © 2024 Overextended <https://github.com/overextended>
