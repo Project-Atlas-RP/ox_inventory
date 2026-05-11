@@ -2,7 +2,8 @@ if not lib then return end
 
 local Inventory = {}
 
-Inventory.Dumpsters = lib.array:new(218085040, 666561306, -58485588, -206690185, 1511880420, 682791951)
+-- Dumpster search functionality
+Inventory.Dumpsters = lib.array:new(1329570871, -1096777189, -468629664, -1426008804, 1614656839, 1437508529, 751349707, 274859350, -44941044, -1187286639, -341442425, 673826957, 375956747, -85604259, -926951449, 1291456491, 1951313592, -130812911, 344662182, 1233216915, 1143474856, -2096124444)
 
 if shared.networkdumpsters then
     -- Make sure dumpsters are frozen to ensure persistent position across clients
@@ -104,6 +105,7 @@ function Inventory.OpenTrunk(entity)
 end
 
 if shared.target then
+    -- Dumpster search functionality
     exports.ox_target:addModel(Inventory.Dumpsters, {
         icon = 'fas fa-dumpster',
         label = locale('search_dumpster'),

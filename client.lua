@@ -43,6 +43,37 @@ plyState:set('invBusy', true, true)
 plyState:set('invHotkeys', false, false)
 plyState:set('canUseWeapons', false, false)
 
+-- Check if player is in a restricted state (cuffed, dead, laststand)
+-- Used to prevent hotbar usage while incapacitated
+local function isPlayerRestricted()
+    -- Check QBX player metadata
+    local playerData = exports.qbx_core:GetPlayerData()
+    if playerData and playerData.metadata then
+        local metadata = playerData.metadata
+        if metadata.ishandcuffed or metadata.isdead or metadata.inlaststand then
+            return true
+        end
+    end
+
+    -- Also check LocalPlayer state as fallback
+    local state = LocalPlayer.state
+    if state then
+        if state.isDead or state.isdead or state.inlaststand or state.inLaststand then
+            return true
+        end
+        if state.cuffState or state.handcuffed or state.isHandcuffed then
+            return true
+        end
+    end
+
+    -- Check if ped is cuffed via native
+    if IsPedCuffed(cache.ped) then
+        return true
+    end
+
+    return false
+end
+
 local function canOpenInventory()
     if not PlayerData.loaded then
         return shared.info('cannot open inventory', '(player inventory has not loaded)')
@@ -57,9 +88,22 @@ local function canOpenInventory()
     if PlayerData.dead or IsPedFatallyInjured(playerPed) then
         return shared.info('cannot open inventory', '(fatal injury)')
     end
+    
+    -- Check for downed/laststand state
+    local isDead = LocalPlayer.state.isdead or LocalPlayer.state.isDead
+    local isLaststand = LocalPlayer.state.inlaststand or LocalPlayer.state.inLaststand
+    if isDead or isLaststand then
+        return shared.info('cannot open inventory', '(downed or dead)')
+    end
 
     if PlayerData.cuffed or IsPedCuffed(playerPed) then
         return shared.info('cannot open inventory', '(cuffed)')
+    end
+    
+    -- Check if atlas_appearance customization is open
+    local appearanceOpen = exports['atlas_appearance']:isCustomizationOpen()
+    if appearanceOpen then
+        return shared.info('cannot open inventory', '(in appearance customization)')
     end
 
     return true
@@ -344,6 +388,7 @@ end)
 
 local Animations = lib.load('data.animations')
 local Items = require 'modules.items.client'
+exports('Items', function() return Items end)
 local usingItem = false
 
 ---@param data { name: string, label: string, count: number, slot: number, metadata: table<string, any>, weight: number }
@@ -758,6 +803,7 @@ local function registerCommands()
 		end
 	end
 
+--[[ PRIMARY INVENTORY KEYBIND - COMMENTED OUT
 	local primary = lib.addKeybind({
 		name = 'inv',
 		description = locale('open_player_inventory'),
@@ -827,6 +873,73 @@ local function registerCommands()
 			Inventory.OpenTrunk(entity)
 		end
 	})
+]]
+
+	-- MAIN INVENTORY KEYBIND (Combined Inventory)
+	local primary = lib.addKeybind({
+        name = 'inv',
+        description = locale('open_player_inventory'),
+        defaultKey = 'tab',
+        onPressed = function(self)
+            
+            if invOpen then
+                return client.closeInventory()
+            end
+            
+            if invBusy or not canOpenInventory() then
+                return lib.notify({ id = 'inventory_player_access', type = 'error', description = locale('inventory_player_access') })
+            end
+            
+            if StashTarget then
+                return client.openInventory('stash', StashTarget)
+            end
+            
+            if cache.vehicle then
+                return openGlovebox(cache.vehicle)
+            end
+            
+            local veh = lib.getClosestVehicle(GetEntityCoords(cache.ped), 4, false)
+
+            if veh ~= nil then
+                local door = Inventory.CanAccessTrunk(veh)
+                if not door then
+                    local closest = lib.points.getClosestPoint()
+                    if closest and closest.currentDistance < 1.2 and (not closest.instance or closest.instance == currentInstance) then
+                        if closest.inv == 'crafting' then
+                            return client.openInventory('crafting', { id = closest.id, index = closest.index })
+                        elseif closest.inv ~= 'license' and closest.inv ~= 'policeevidence' then
+                            return client.openInventory(closest.inv or 'drop', { id = closest.invId, type = closest.type })
+                        end
+                    end
+                    return client.openInventory()
+                end
+                local coords = GetEntityCoords(veh)
+                
+                TaskTurnPedToFaceCoord(cache.ped, coords.x, coords.y, coords.z, 0)
+                
+                if not client.openInventory('trunk', { netid = NetworkGetNetworkIdFromEntity(veh), entityid = veh, door = door }) then return end
+                
+                if type(door) == 'table' then
+                    for i = 1, #door do
+                        SetVehicleDoorOpen(veh, door[i], false, false)
+                    end
+                else
+                    SetVehicleDoorOpen(veh, door --[[@as number]], false, false)
+                end
+                return
+            else
+                local closest = lib.points.getClosestPoint()
+                if closest and closest.currentDistance < 1.2 and (not closest.instance or closest.instance == currentInstance) then
+                    if closest.inv == 'crafting' then
+                        return client.openInventory('crafting', { id = closest.id, index = closest.index })
+                    elseif closest.inv ~= 'license' and closest.inv ~= 'policeevidence' then
+                        return client.openInventory(closest.inv or 'drop', { id = closest.invId, type = closest.type })
+                    end
+                end
+                return client.openInventory()
+            end
+        end
+    })
 
 	lib.addKeybind({
 		name = 'reloadweapon',
@@ -854,7 +967,7 @@ local function registerCommands()
 		description = locale('disable_hotbar'),
 		defaultKey = client.keys[3],
 		onPressed = function()
-			if EnableWeaponWheel or not invHotkeys or IsNuiFocused() or lib.progressActive() then return end
+			if EnableWeaponWheel or not invHotkeys or IsNuiFocused() or lib.progressActive() or isPlayerRestricted() then return end
 			SendNUIMessage({ action = 'toggleHotbar' })
 		end
 	})
@@ -865,7 +978,7 @@ local function registerCommands()
 			description = locale('use_hotbar', i),
 			defaultKey = tostring(i),
 			onPressed = function()
-				if invOpen or EnableWeaponWheel or not invHotkeys or IsNuiFocused() then return end
+				if invOpen or EnableWeaponWheel or not invHotkeys or IsNuiFocused() or isPlayerRestricted() then return end
 				useSlot(i)
 			end
 		})
@@ -1061,14 +1174,14 @@ end
 local function createDrop(dropId, data)
 	local point = lib.points.new({
 		coords = data.coords,
-		distance = 16,
+		distance = 50,
 		invId = dropId,
 		instance = data.instance,
 		model = data.model
 	})
 
 	if point.model or client.dropprops then
-		point.distance = 30
+		point.distance = 50
 		point.onEnter = onEnterDrop
 		point.onExit = onExitDrop
 	else
@@ -1110,6 +1223,28 @@ RegisterNetEvent('ox_inventory:removeDrop', function(dropId)
 			point:remove()
 
 			if point.entity then Utils.DeleteEntity(point.entity) end
+		end
+	end
+end)
+
+RegisterNetEvent('ox_inventory:updateDropModel', function(dropId, model)
+	if client.drops then
+		local point = client.drops[dropId]
+
+		if point then
+			-- Update the model for the point
+			point.model = model
+
+			-- If entity already exists, delete and recreate with new model
+			if point.entity then
+				Utils.DeleteEntity(point.entity)
+				point.entity = nil
+
+				-- Recreate with new model if player is near
+				if point.currentDistance and point.currentDistance <= point.distance then
+					onEnterDrop(point)
+				end
+			end
 		end
 	end
 end)
@@ -1165,6 +1300,17 @@ local function setStateBagHandler(stateId)
 	setStateBagHandler = nil
 end
 
+-- Weapon groups that can be used while in a vehicle (drive-by capable)
+local vehicleWeaponGroups = {
+	[`GROUP_PISTOL`] = true,
+	[`GROUP_SMG`] = true,
+	[`GROUP_STUNGUN`] = true,
+	[`GROUP_PETROLCAN`] = true,
+	[`GROUP_FIREEXTINGUISHER`] = true,
+	[`GROUP_UNARMED`] = true,
+	[`GROUP_THROWN`] = true,
+}
+
 lib.onCache('seat', function(seat)
 	if seat then
 		local hasWeapon = GetCurrentPedVehicleWeapon(cache.ped)
@@ -1177,9 +1323,17 @@ lib.onCache('seat', function(seat)
 	Utils.WeaponWheel(false)
 end)
 
-lib.onCache('vehicle', function()
+lib.onCache('vehicle', function(vehicle)
 	if invOpen and (not currentInventory.entity or currentInventory.entity == cache.vehicle) then
 		return client.closeInventory()
+	end
+
+	-- Holster non-driveby weapons when entering a vehicle
+	if vehicle and currentWeapon then
+		local weaponGroup = GetWeapontypeGroup(currentWeapon.hash)
+		if not vehicleWeaponGroups[weaponGroup] then
+			currentWeapon = Weapon.Disarm(currentWeapon)
+		end
 	end
 end)
 
@@ -1279,7 +1433,7 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 	---@param point CPoint
 	local function nearbyLicense(point)
 		---@diagnostic disable-next-line: param-type-mismatch
-		DrawMarker(2, point.coords.x, point.coords.y, point.coords.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.2, 0.15, 30, 150, 30, 222, false, false, 0, true, false, false, false)
+		DrawMarker(2, point.coords.x, point.coords.y, point.coords.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.2, 0.15, 82, 22, 153, 200, false, false, 0, true, false, false, false)
 
 		if point.isClosest and point.currentDistance < 1.2 then
 			if not hasTextUi then
@@ -1369,7 +1523,10 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 				playerCoords = GetEntityCoords(playerPed)
 
 				if currentInventory and not currentInventory.ignoreSecurityChecks then
-                    local maxDistance = (currentInventory.distance or currentInventory.type == 'stash' and 4.8 or 1.8) + 0.2
+                    local maxDistance = (currentInventory.distance
+                        or (currentInventory.type == 'stash' and 4.8)
+                        or (currentInventory.type == 'shop' and 6.0)
+                        or 1.8) + 0.2
 
 					if currentInventory.type == 'otherplayer' then
 						local id = GetPlayerFromServerId(currentInventory.id)
@@ -1393,6 +1550,8 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 
 		if client.parachute and GetPedParachuteState(playerPed) ~= -1 then
 			Utils.DeleteEntity(client.parachute[1])
+			-- Parachute item is consume=0; consume it now that it actually deployed.
+			TriggerServerEvent('atlas_inventory:parachuteDeployed', client.parachute[3])
 			client.parachute = false
 		end
 
@@ -1509,7 +1668,11 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 							currentWeapon.metadata.ammo = (weaponAmmo < currentAmmo) and 0 or currentAmmo
 
 							if currentAmmo <= 0 then
-								SetPedInfiniteAmmo(playerPed, false, currentWeapon.hash)
+								-- Clean-remove the weapon from the ped instead of toggling off infinite
+								-- ammo. Disabling infinite ammo makes GTA auto-drop the empty can as a
+								-- physical pickup, which desyncs from the inventory (slot still holds the
+								-- empty item). RemoveWeaponFromPed unequips silently with no drop.
+								RemoveWeaponFromPed(playerPed, currentWeapon.hash)
 							end
 						else
 							currentAmmo = GetAmmoInPedWeapon(playerPed, currentWeapon.hash)
@@ -1691,18 +1854,18 @@ local function isGiveTargetValid(ped, coords)
 end
 
 RegisterNUICallback('giveItem', function(data, cb)
-	cb(1)
+    cb(1)
 
     if usingItem then return end
 
-	if client.giveplayerlist then
-		local nearbyPlayers = lib.getNearbyPlayers(GetEntityCoords(playerPed), 3.0)
+    if client.giveplayerlist then
+        local nearbyPlayers = lib.getNearbyPlayers(GetEntityCoords(playerPed), 3.0)
         local nearbyCount = #nearbyPlayers
 
-		if nearbyCount == 0 then return end
+        if nearbyCount == 0 then return end
 
         if nearbyCount == 1 then
-			local option = nearbyPlayers[1]
+            local option = nearbyPlayers[1]
 
             if not isGiveTargetValid(option.ped, option.coords) then return end
 
@@ -1711,50 +1874,64 @@ RegisterNUICallback('giveItem', function(data, cb)
 
         local giveList, n = {}, 0
 
-		for i = 1, #nearbyPlayers do
-			local option = nearbyPlayers[i]
+        for i = 1, #nearbyPlayers do
+            local option = nearbyPlayers[i]
 
             if isGiveTargetValid(option.ped, option.coords) then
-				local playerName = GetPlayerName(option.id)
-				option.id = GetPlayerServerId(option.id)
+                local playerName = GetPlayerName(option.id)
+                option.id = GetPlayerServerId(option.id)
                 ---@diagnostic disable-next-line: inject-field
-				option.label = ('[%s] %s'):format(option.id, playerName)
-				n += 1
-				giveList[n] = option
-			end
-		end
+                option.label = ('[%s] %s'):format(option.id, playerName)
+                n += 1
+                giveList[n] = option
+            end
+        end
 
         if n == 0 then return end
 
-		lib.registerMenu({
-			id = 'ox_inventory:givePlayerList',
-			title = 'Give item',
-			options = giveList,
-		}, function(selected)
+        lib.registerMenu({
+            id = 'ox_inventory:givePlayerList',
+            title = 'Give item',
+            options = giveList,
+        }, function(selected)
             giveItemToTarget(giveList[selected].id, data.slot, data.count)
         end)
 
-		return lib.showMenu('ox_inventory:givePlayerList')
-	end
+        return lib.showMenu('ox_inventory:givePlayerList')
+    end
 
     if cache.vehicle then
-		local seats = GetVehicleMaxNumberOfPassengers(cache.vehicle) - 1
-
-		if seats >= 0 then
-			local passenger = GetPedInVehicleSeat(cache.vehicle, cache.seat - 2 * (cache.seat % 2) + 1)
-
-			if passenger ~= 0 and IsEntityVisible(passenger) then
-                return giveItemToTarget(GetPlayerServerId(NetworkGetPlayerIndexFromPed(passenger)), data.slot, data.count)
-			end
-		end
-
+        local targetSeat = nil
+        
+        if cache.seat == -1 then
+            targetSeat = 0
+        elseif cache.seat == 0 then
+            targetSeat = -1
+        end
+        
+        if targetSeat then
+            local occupant = GetPedInVehicleSeat(cache.vehicle, targetSeat)
+            
+            if occupant ~= 0 and occupant ~= playerPed and IsEntityVisible(occupant) then
+                return giveItemToTarget(GetPlayerServerId(NetworkGetPlayerIndexFromPed(occupant)), data.slot, data.count)
+            end
+        end
+        
         return
-	end
+    end
 
-    local entity = Utils.Raycast(1|2|4|8|16, GetOffsetFromEntityInWorldCoords(cache.ped, 0.0, 3.0, 0.5), 0.2)
-
-    if entity and IsPedAPlayer(entity) and IsEntityVisible(entity) and #(GetEntityCoords(playerPed, true) - GetEntityCoords(entity, true)) < 3.0 then
-        return giveItemToTarget(GetPlayerServerId(NetworkGetPlayerIndexFromPed(entity)), data.slot, data.count)
+    local itemName = data.item or data.name
+    
+    if not itemName then
+        local inventory = exports.ox_inventory:GetPlayerItems()
+        if inventory and inventory[data.slot] then
+            itemName = inventory[data.slot].name
+        end
+    end
+    
+    if itemName then
+        client.closeInventory()
+        exports.atlas_itemthrowing:startGiveMode(itemName, data.slot, data.count)
     end
 end)
 
@@ -1794,6 +1971,10 @@ RegisterNUICallback('swapItems', function(data, cb)
 
     swapActive = true
 
+    -- Determine if this is a drop or pickup action for animation
+    local isDropping = data.toType == 'newdrop' or (data.toType == 'drop' and data.fromType == 'player')
+    local isPickingUp = data.fromType == 'drop' and data.toType == 'player'
+
 	if data.toType == 'newdrop' then
 		if cache.vehicle or IsPedFalling(playerPed) then
 			swapActive = false
@@ -1832,6 +2013,17 @@ RegisterNUICallback('swapItems', function(data, cb)
 			currentWeapon = Weapon.Disarm(currentWeapon, true)
 		end
 	end
+
+    -- Play animation for drop/pickup actions (only when not in vehicle)
+    if not cache.vehicle then
+        if isDropping then
+            -- Dropping item on ground - putdown animation
+            Utils.PlayAnim(0, 'pickup_object', 'putdown_low', 5.0, 1.5, 800, 48, 0.0, 0, 0, 0)
+        elseif isPickingUp then
+            -- Picking up item from ground - pickup animation
+            Utils.PlayAnim(0, 'pickup_object', 'pickup_low', 5.0, 1.5, 800, 48, 0.0, 0, 0, 0)
+        end
+    end
 
 	local success, response, weaponSlot = lib.callback.await('ox_inventory:swapItems', false, data)
     swapActive = false
@@ -1914,4 +2106,22 @@ lib.callback.register('ox_inventory:getVehicleData', function(netid)
 	if entity then
 		return GetEntityModel(entity), GetVehicleClass(entity)
 	end
+end)
+
+-- Atlas RP: UI Settings persistence (zoom, window positions)
+RegisterNUICallback('saveUISettings', function(data, cb)
+	TriggerServerEvent('ox_inventory:saveUISettings', data)
+	cb('ok')
+end)
+
+RegisterNUICallback('loadUISettings', function(_, cb)
+	lib.callback('ox_inventory:loadUISettings', false, function(settings)
+		cb(settings or {})
+	end)
+end)
+
+RegisterNUICallback('isOnDutyLeo', function(_, cb)
+	local isLeo = client.hasGroup(shared.police)
+	local qbPlayer = isLeo and exports.qbx_core:GetPlayerData()
+	cb(isLeo and qbPlayer and qbPlayer.job and qbPlayer.job.onduty or false)
 end)

@@ -71,19 +71,12 @@ local registeredDumpsters = {}
 
 ---@param coords vector3
 ---@return string?
-local function getDumpsterFromCoords(coords)
-	local found
-
-	for i = 1, #registeredDumpsters do
-		local distance = #(coords - registeredDumpsters[i])
-
-		if distance < 0.1 then
-			found = i
-			break
+local function getDumpsterIdFromCoords(coords)
+	for id, dumpster in pairs(registeredDumpsters) do
+		if #(coords - dumpster.coords) < 0.1 then
+			return id
 		end
 	end
-
-	return found
 end
 
 ---@param playerPed number
@@ -195,24 +188,62 @@ local function openInventory(source, invType, data, ignoreSecurityChecks)
 				right = Inventory(('evidence-%s'):format(data))
 			end
 		elseif invType == 'dumpster' then
-			if shared.networkdumpsters then
-				local dumpsterId = getDumpsterFromCoords(data)
-				right = dumpsterId and Inventory(('dumpster-%s'):format(dumpsterId))
+			-- Treat dumpsters like temporary drops with refill cooldown
+			-- data can be a string ID (e.g. 'dumpster12345' when networkdumpsters is off)
+			-- or a vector3 coords (when networkdumpsters is on)
+			local isCoords = type(data) ~= 'string'
+			local dumpsterId
 
-				if not right then
-					dumpsterId = #registeredDumpsters + 1
-					right = Inventory.Create(('dumpster-%s'):format(dumpsterId), locale('dumpster'), invType, 15, 0, 100000, false)
-					registeredDumpsters[dumpsterId] = data
+			if isCoords then
+				-- Coords-based lookup (networkdumpsters enabled)
+				dumpsterId = getDumpsterIdFromCoords(data)
+			else
+				-- String-based ID (networkdumpsters disabled) - use the string directly
+				-- Check if an inventory already exists with this ID
+				local existing = Inventory(data)
+				if existing then
+					dumpsterId = data
+				end
+			end
+
+			if not dumpsterId then
+				-- Create new dumpster inventory with random refill cooldown
+				local refillCooldown = math.random(server.dumpsterRefillMin, server.dumpsterRefillMax)
+				if isCoords then
+					dumpsterId = ('dumpster-%s'):format(math.random(100000, 999999))
+				else
+					dumpsterId = data
+				end
+				right = Inventory.Create(dumpsterId, locale('dumpster'), invType, 15, 0, 100000, false)
+				if isCoords then
+					registeredDumpsters[dumpsterId] = { coords = data, lastRefill = os.time(), cooldown = refillCooldown }
+				else
+					registeredDumpsters[dumpsterId] = { id = data, lastRefill = os.time(), cooldown = refillCooldown }
 				end
 			else
-				---@cast data string
-				right = Inventory(data)
+				right = Inventory(dumpsterId)
 
-				if not right then
-					local netid = tonumber(data:sub(9))
+				if right then
+					local dumpster = registeredDumpsters[dumpsterId]
+					local isEmpty = (type(right.items) ~= 'table') or not next(right.items)
 
-					if netid and NetworkGetEntityFromNetworkId(netid) > 0 then
-						right = Inventory.Create(data, locale('dumpster'), invType, 15, 0, 100000, false)
+					-- Refill if empty and cooldown has passed (default 10-15 min)
+					if dumpster then
+						local cooldown = dumpster.cooldown or math.random(server.dumpsterRefillMin, server.dumpsterRefillMax)
+						if isEmpty and (os.time() - (dumpster.lastRefill or 0)) >= cooldown then
+							local ok, items, weight = pcall(Inventory.Load, dumpsterId, invType, false)
+							if ok then
+								right.items = items or {}
+								right.weight = weight or 0
+								dumpster.lastRefill = os.time()
+								-- Randomize cooldown for next refill
+								dumpster.cooldown = math.random(server.dumpsterRefillMin, server.dumpsterRefillMax)
+							else
+								-- If loot generation fails for any reason, don't block opening.
+								right.items = right.items or {}
+								right.weight = right.weight or 0
+							end
+						end
 					end
 				end
 			end
@@ -571,7 +602,8 @@ lib.addCommand({'additem', 'giveitem'}, {
 		local inventory = Inventory(args.target) --[[@as OxInventory]]
 		local count = args.count and math.max(args.count, 1) or 1
 
-		local success, response = Inventory.AddItem(inventory, item.name, count, args.type and { type = tonumber(args.type) or args.type })
+		-- Admin commands bypass weight limit (ignoreWeight = true) and prevent drop (preventDrop = true)
+		local success, response = Inventory.AddItem(inventory, item.name, count, args.type and { type = tonumber(args.type) or args.type }, nil, nil, true, true)
 
 		if not success then
 			return Citizen.Trace(('Failed to give %sx %s to player %s (%s)'):format(count, item.name, args.target, response))
@@ -582,6 +614,13 @@ lib.addCommand({'additem', 'giveitem'}, {
 		if server.loglevel > 0 then
 			lib.logger(source.owner, 'admin', ('"%s" gave %sx %s to "%s"'):format(source.label, count, item.name, inventory.label))
 		end
+		pcall(function()
+			local adminId = type(source) == 'table' and source.id or nil
+			exports.atlas_logs:log('Inventory', 'Admin Item Given', (source.label or 'console') .. ' gave ' .. count .. 'x ' .. (item.label or item.name) .. ' to ' .. inventory.label, 'warning', adminId, {
+				items = {{ name = item.name, label = item.label, count = count }},
+				targetPlayers = inventory.player and { inventory.id } or nil
+			})
+		end)
 	end
 end)
 
@@ -612,6 +651,13 @@ lib.addCommand('removeitem', {
 		if server.loglevel > 0 then
 			lib.logger(source.owner, 'admin', ('"%s" removed %sx %s from "%s"'):format(source.label, count, item.name, inventory.label))
 		end
+		pcall(function()
+			local adminId = type(source) == 'table' and source.id or nil
+			exports.atlas_logs:log('Inventory', 'Admin Item Removed', (source.label or 'console') .. ' removed ' .. count .. 'x ' .. (item.label or item.name) .. ' from ' .. inventory.label, 'warning', adminId, {
+				items = {{ name = item.name, label = item.label, count = count }},
+				targetPlayers = inventory.player and { inventory.id } or nil
+			})
+		end)
 	end
 end)
 
@@ -642,6 +688,13 @@ lib.addCommand('setitem', {
 		if server.loglevel > 0 then
 			lib.logger(source.owner, 'admin', ('"%s" set "%s" %s count to %sx'):format(source.label, inventory.label, item.name, count))
 		end
+		pcall(function()
+			local adminId = type(source) == 'table' and source.id or nil
+			exports.atlas_logs:log('Inventory', 'Admin Item Set', (source.label or 'console') .. ' set ' .. inventory.label .. ' ' .. (item.label or item.name) .. ' count to ' .. count, 'warning', adminId, {
+				items = {{ name = item.name, label = item.label, count = count }},
+				targetPlayers = inventory.player and { inventory.id } or nil
+			})
+		end)
 	end
 end)
 
@@ -684,6 +737,67 @@ lib.addCommand({'restoreinv', 'returninv'}, {
 	Inventory.Return(args.target)
 end)
 
+-- Dynamic Item Replacement System
+local function processItemReplacement(playerId, itemData)
+    if not itemData.onUse then return end
+    
+    local onUse = itemData.onUse
+    
+    -- Handle different onUse configurations
+    if onUse.giveItem then
+        local giveItemData = onUse.giveItem
+        local itemName = giveItemData.name or giveItemData
+        local count = giveItemData.count or 1
+        local metadata = giveItemData.metadata
+        
+        -- Add the replacement item to player inventory
+        local success, response = Inventory.AddItem(playerId, itemName, count, metadata)
+        
+        if not success then
+            -- If inventory is full, try to drop the item on the ground
+            local playerPos = GetEntityCoords(GetPlayerPed(playerId))
+            if playerPos then
+                exports.ox_inventory:CustomDrop('replacement', {
+                    {name = itemName, count = count, metadata = metadata}
+                }, playerPos, 1, 1000)
+            end
+        end
+    end
+    
+    -- Handle multiple replacement items
+    if onUse.giveItems then
+        for _, giveItemData in ipairs(onUse.giveItems) do
+            local itemName = giveItemData.name
+            local count = giveItemData.count or 1
+            local metadata = giveItemData.metadata
+            
+            local success, response = Inventory.AddItem(playerId, itemName, count, metadata)
+            
+            if not success then
+                local playerPos = GetEntityCoords(GetPlayerPed(playerId))
+                if playerPos then
+                    exports.ox_inventory:CustomDrop('replacement', {
+                        {name = itemName, count = count, metadata = metadata}
+                    }, playerPos, 1, 1000)
+                end
+            end
+        end
+    end
+    
+    -- Handle custom functions
+    if onUse.customFunction and type(onUse.customFunction) == 'function' then
+        onUse.customFunction(playerId, itemData)
+    end
+end
+
+-- Hook into the usedItem event to process replacements
+AddEventHandler('ox_inventory:usedItem', function(playerId, itemName, slotId, metadata)
+    local item = Items(itemName)
+    if item and item.onUse then
+        processItemReplacement(playerId, item)
+    end
+end)
+
 lib.addCommand('clearinv', {
 	help = 'Wipes all items from the target inventory',
 	params = {
@@ -713,3 +827,134 @@ lib.addCommand('viewinv', {
 }, function(source, args)
 	Inventory.InspectInventory(source, tonumber(args.invId) or args.invId)
 end)
+
+-- Dynamic Alcohol system integration
+exports('alcohol', function(event, item, inventory, slot, data)
+    if event == 'usingItem' then
+        -- Get alcohol level from item's client data, default to 1.0 if not specified
+        local alcoholLevel = item.client and item.client.alcoholLevel or 1.0
+        
+        -- Use the existing alcohol callback system
+        local success = lib.callback.await('consumables:client:DrinkAlcohol', inventory.id, alcoholLevel)
+        
+        if success then
+            return true -- Item was consumed successfully
+        else
+            return false -- Consumption was cancelled, don't remove item
+        end
+    end
+end)
+
+-- Atlas RP: UI Settings persistence (zoom, window positions)
+-- Create table if not exists on resource start
+MySQL.ready(function()
+    MySQL.query([[
+        CREATE TABLE IF NOT EXISTS `ox_inventory_uisettings` (
+            `identifier` VARCHAR(60) NOT NULL,
+            `settings` LONGTEXT NULL,
+            PRIMARY KEY (`identifier`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ]])
+end)
+
+RegisterNetEvent('ox_inventory:saveUISettings', function(data)
+    local source = source
+    local player = exports.qbx_core:GetPlayer(source)
+    if not player then return end
+    
+    local identifier = player.PlayerData.citizenid
+    local settings = json.encode(data)
+    
+    MySQL.insert('INSERT INTO ox_inventory_uisettings (identifier, settings) VALUES (?, ?) ON DUPLICATE KEY UPDATE settings = ?', {
+        identifier, settings, settings
+    })
+end)
+
+lib.callback.register('ox_inventory:loadUISettings', function(source)
+    local player = exports.qbx_core:GetPlayer(source)
+    if not player then return {} end
+    
+    local identifier = player.PlayerData.citizenid
+    local result = MySQL.scalar.await('SELECT settings FROM ox_inventory_uisettings WHERE identifier = ?', { identifier })
+    
+    if result then
+        return json.decode(result) or {}
+    end
+    
+    return {}
+end)
+
+-------------------------------
+-- Gun Rack (emergency vehicles)
+-------------------------------
+
+do
+    local GunRack = lib.load('data.gunrack')
+    local startSlot = GunRack.gunRackStartSlot
+
+    -- Build uppercase lookup of allowed weapons
+    local allowedUpper = {}
+    for weapon in pairs(GunRack.allowedWeapons) do
+        allowedUpper[weapon:upper()] = true
+    end
+
+    ---@param invId string|number
+    ---@return boolean
+    local function isGunRackGlovebox(invId)
+        if type(invId) ~= 'string' or not invId:find('^glove') then return false end
+        local inv = Inventory(invId)
+        return inv ~= nil and inv.type == 'glovebox' and inv.slots >= (startSlot + 1)
+    end
+
+    ---@param slot table|number
+    ---@return number
+    local function getSlotNumber(slot)
+        return type(slot) == 'table' and slot.slot or slot
+    end
+
+    exports.ox_inventory:registerHook('swapItems', function(payload)
+        local src = payload.source
+        local toInvId = type(payload.toInventory) == 'string' and payload.toInventory or tostring(payload.toInventory)
+        local fromInvId = type(payload.fromInventory) == 'string' and payload.fromInventory or tostring(payload.fromInventory)
+
+        local toIsGunRack = isGunRackGlovebox(toInvId)
+        local fromIsGunRack = isGunRackGlovebox(fromInvId)
+
+        if not toIsGunRack and not fromIsGunRack then return end
+
+        -- Check if interaction involves a gun rack slot
+        local toSlotNum = getSlotNumber(payload.toSlot)
+        local fromSlotNum = type(payload.fromSlot) == 'table' and payload.fromSlot.slot or nil
+
+        local touchesGunRackSlot = (toIsGunRack and toSlotNum >= startSlot)
+            or (fromIsGunRack and fromSlotNum and fromSlotNum >= startSlot)
+
+        if not touchesGunRackSlot then return end
+
+        -- Gun rack slots require on-duty LEO
+        local player = exports.qbx_core:GetPlayer(src)
+        if not player then return false end
+
+        local job = player.PlayerData.job
+        if not job or job.type ~= 'leo' or not job.onduty then
+            if src then
+                exports.qbx_core:Notify(src, 'Only on-duty law enforcement can use the gun rack.', 'error')
+            end
+            return false
+        end
+
+        -- Items going INTO gun rack slots must be allowed weapons
+        if toIsGunRack and toSlotNum >= startSlot then
+            local item = payload.fromSlot
+            if not item or type(item) ~= 'table' then return false end
+
+            local itemName = (item.name or ''):upper()
+            if not allowedUpper[itemName] then
+                exports.qbx_core:Notify(src, 'Only rifles and shotguns can be stored in the gun rack.', 'error')
+                return false
+            end
+        end
+    end, {
+        print = false,
+    })
+end

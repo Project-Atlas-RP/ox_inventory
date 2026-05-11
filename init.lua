@@ -52,20 +52,15 @@ if IsDuplicityVersion() then
 				["sprunk", 1, 1],
 				["water", 1, 1],
 				["garbage", 1, 2, 50],
-				["panties", 1, 1, 5],
+				["choco_chunk", 1, 1, 5],
 				["money", 1, 50],
 				["money", 200, 400, 5],
 				["bandage", 1, 1]
 			]
 		]])),
-        dumpsterloot = json.decode(GetConvar('inventory:dumpsterloot', [[
-			[
-				["mustard", 1, 1],
-				["garbage", 1, 3],
-				["money", 1, 10],
-				["burger", 1, 1]
-			]
-		]])),
+        dumpsterloot = json.decode(GetConvar('inventory:dumpsterloot', '[]')),
+        dumpsterRefillMin = GetConvarInt('inventory:dumpsterRefillMin', 600), -- Minimum refill cooldown in seconds (default 10 min)
+        dumpsterRefillMax = GetConvarInt('inventory:dumpsterRefillMax', 900), -- Maximum refill cooldown in seconds (default 15 min)
     }
 
     local accounts = json.decode(GetConvar('inventory:accounts', '["money"]'))
@@ -137,7 +132,7 @@ else
     client.craftingmarker = json.decode(GetConvar('inventory:craftingmarker', [[
         {
             "type": 2,
-            "colour": [150, 150, 30],
+            "colour": [82, 22, 153],
             "scale": [0.3, 0.2, 0.15]
         }
     ]])) or fallbackmarker
@@ -145,7 +140,7 @@ else
     client.dropmarker = json.decode(GetConvar('inventory:dropmarker', [[
         {
             "type": 2,
-            "colour": [150, 30, 30],
+            "colour": [82, 22, 153],
             "scale": [0.3, 0.2, 0.15]
         }
     ]])) or fallbackmarker

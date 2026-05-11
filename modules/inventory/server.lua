@@ -5,6 +5,70 @@ local Inventory = {}
 ---@type table<any, OxInventory>
 local Inventories = {}
 
+-- Weight-based drop models configuration
+-- Models are selected based on drop weight thresholds
+-- Format: { maxWeight, modelHash } - if weight <= maxWeight, use this model
+local dropModelThresholds = {
+    { 2000,  joaat('prop_paper_bag_01') },     -- Small paper bag (up to 1kg)
+    { 20000, joaat('prop_med_bag_01b') },         -- Medical bag (up to 20kg)
+
+}
+local dropModelDefault = joaat('prop_big_bag_01')
+
+---Get the appropriate drop model based on weight
+---@param weight number The weight of the drop in grams
+---@return number modelHash The hash of the model to use
+local function getDropModelForWeight(weight)
+    for i = 1, #dropModelThresholds do
+        local threshold = dropModelThresholds[i]
+        if weight <= threshold[1] then
+            return threshold[2]
+        end
+    end
+    return dropModelDefault
+end
+
+---Update the drop model based on current weight
+---@param dropId string The drop inventory ID
+---@param weight number The current weight of the drop
+local function updateDropModel(dropId, weight)
+    local dropData = Inventory.Drops[dropId]
+    if not dropData then return end
+
+    local newModel = getDropModelForWeight(weight)
+    if dropData.model ~= newModel then
+        dropData.model = newModel
+        TriggerClientEvent('ox_inventory:updateDropModel', -1, dropId, newModel)
+    end
+end
+
+---Checks if two metadata tables have differing durability values.
+---For degrading items (those with `metadata.degrade`), the comparison uses the
+---truncated displayed percentage (matching the UI's `Math.trunc`), so two stacks
+---that read the same percent will merge. The resulting stack keeps the existing
+---slot's exact timestamp, so the new items inherit its remaining shelf life.
+---@param meta1 table
+---@param meta2 table
+---@return boolean blocked true if stacking should be blocked
+local function hasDifferentDurability(meta1, meta2)
+	local dur1 = meta1.durability
+	local dur2 = meta2.durability
+	if dur1 == nil or dur2 == nil then return false end
+	if dur1 == dur2 then return false end
+
+	if meta1.degrade and meta1.degrade == meta2.degrade then
+		local degradeSeconds = meta1.degrade * 60
+		local ostime = os.time()
+		local pct1 = (dur1 - ostime) / degradeSeconds * 100
+		local pct2 = (dur2 - ostime) / degradeSeconds * 100
+		if pct1 < 0 then pct1 = 0 end
+		if pct2 < 0 then pct2 = 0 end
+		return math.floor(pct1) ~= math.floor(pct2)
+	end
+
+	return true
+end
+
 ---@class OxInventory
 local OxInventory = {}
 OxInventory.__index = OxInventory
@@ -813,16 +877,18 @@ function Inventory.Load(id, invType, owner)
         result = id and (invType == 'trunk' and db.loadTrunk(id) or db.loadGlovebox(id))
 
         if not result then
-            if server.randomloot then
+            -- Random loot: enabled for glovebox, disabled for trunk
+            if server.randomloot and invType == 'glovebox' then
                 return generateItems(id, 'vehicle')
             end
         else
             result = result[invType]
         end
 	elseif invType == 'dumpster' then
-		if server.randomloot then
-			return generateItems(id, invType)
-		end
+		-- Disabled random dumpster loot
+		-- if server.randomloot then
+		-- 	return generateItems(id, invType)
+		-- end
 	elseif id then
 		result = db.loadStash(owner or '', id)
 	end
@@ -1037,10 +1103,11 @@ function Inventory.SetMetadata(inv, slotId, metadata)
     end
 
     if metadata.imageurl ~= imageurl and Utils.IsValidImageUrl then
+        local pid = inv.player and inv.id or nil
         if Utils.IsValidImageUrl(metadata.imageurl) then
-            Utils.DiscordEmbed('Valid image URL', ('Updated item "%s" (%s) with valid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or slot.label, slot.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 65280)
+            Utils.DiscordEmbed('Valid image URL', ('Updated item "%s" (%s) with valid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or slot.label, slot.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 65280, pid)
         else
-            Utils.DiscordEmbed('Invalid image URL', ('Updated item "%s" (%s) with invalid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or slot.label, slot.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 16711680)
+            Utils.DiscordEmbed('Invalid image URL', ('Updated item "%s" (%s) with invalid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or slot.label, slot.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 16711680, pid)
             metadata.imageurl = nil
         end
     end
@@ -1101,8 +1168,10 @@ exports('SetMaxWeight', Inventory.SetMaxWeight)
 ---@param metadata? table | string
 ---@param slot? number
 ---@param cb? fun(success?: boolean, response: string|SlotWithItem|nil)
+---@param preventDrop? boolean If true, prevents auto-drop when inventory is full
+---@param ignoreWeight? boolean If true, bypasses weight limit check (for admin commands)
 ---@return boolean? success, string|SlotWithItem|nil response
-function Inventory.AddItem(inv, item, count, metadata, slot, cb)
+function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ignoreWeight)
 	if type(item) ~= 'table' then item = Items(item) end
 
 	if not item then return false, 'invalid_item' end
@@ -1124,7 +1193,7 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 		local slotData = inv.items[slot]
 		slotMetadata, slotCount = Items.Metadata(inv.id, item, metadata and table.clone(metadata) or {}, count)
 
-		if not slotData or (item.stack and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata)) then
+		if not slotData or (item.stack and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata) and not hasDifferentDurability(slotData.metadata or {}, slotMetadata)) then
 			toSlot = slot
 		end
 	end
@@ -1136,7 +1205,7 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 		for i = 1, inv.slots do
 			local slotData = items[i]
 
-			if item.stack and slotData ~= nil and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata) then
+			if item.stack and slotData ~= nil and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata) and not hasDifferentDurability(slotData.metadata, slotMetadata) then
 				toSlot = i
 				break
 			elseif not item.stack and not slotData then
@@ -1156,7 +1225,42 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 		end
 	end
 
-	if not toSlot then return false, 'inventory_full' end
+	-- Check weight limit (unless ignoreWeight is true for admin commands)
+	local itemWeight = Inventory.SlotWeight(item, { count = count, metadata = slotMetadata or metadata or {} })
+	local wouldExceedWeight = not ignoreWeight and inv.maxWeight and (inv.weight + itemWeight) > inv.maxWeight
+
+	if not toSlot or wouldExceedWeight then
+		-- Inventory is full (no slot or weight exceeded) - attempt to drop on ground if enabled and this is a player inventory
+		if not preventDrop and inv.player then
+			local ped = GetPlayerPed(inv.id)
+			if ped and DoesEntityExist(ped) then
+				local coords = GetEntityCoords(ped)
+				local dropCoords = vec3(coords.x, coords.y, coords.z - 0.5)
+				
+				-- Prepare metadata for drop (clone to avoid reference issues)
+				local dropMeta = slotMetadata or (metadata and table.clone(metadata) or nil)
+				
+				exports.ox_inventory:CustomDrop('drop', {{ item.name, count, dropMeta }}, dropCoords)
+				
+				-- Notify player
+				local reason = wouldExceedWeight and 'Too Heavy' or 'Inventory Full'
+				TriggerClientEvent('ox_lib:notify', inv.id, {
+					title = reason,
+					description = ('Dropped on ground: %s x%d'):format(item.label or item.name, count),
+					type = 'warning',
+					duration = 4000
+				})
+				
+				local invokingResource = server.loglevel > 1 and GetInvokingResource()
+				if invokingResource then
+					lib.logger(inv.owner, 'addItem', ('"%s" dropped %sx %s near "%s" (%s)'):format(invokingResource, count, item.name, inv.label, reason:lower()))
+				end
+				
+				return true, 'dropped_on_ground'
+			end
+		end
+		return false, wouldExceedWeight and 'over_weight' or 'inventory_full'
+	end
 
 	inv.changed = true
 
@@ -1181,6 +1285,12 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 			lib.logger(inv.owner, 'addItem', ('"%s" added %sx %s to "%s"'):format(invokingResource, count, item.name, inv.label))
 		end
 
+		pcall(function()
+			exports.atlas_logs:log('Inventory', 'Item Added', (invokingResource or 'unknown') .. ' added ' .. count .. 'x ' .. (item.label or item.name) .. ' to ' .. inv.label, 'info', inv.player and inv.id or nil, {
+				items = {{ name = item.name, label = item.label, count = count, metadata = slotMetadata or nil }}
+			})
+		end)
+
 		success = true
 		response = inv.items[toSlot]
 	elseif toSlotType == 'table' then
@@ -1203,6 +1313,12 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 			lib.logger(inv.owner, 'addItem', ('"%s" added %sx %s to "%s"'):format(invokingResource, added, item.name, inv.label))
 		end
 
+		pcall(function()
+			exports.atlas_logs:log('Inventory', 'Item Added', (invokingResource or 'unknown') .. ' added ' .. added .. 'x ' .. (item.label or item.name) .. ' to ' .. inv.label, 'info', inv.player and inv.id or nil, {
+				items = {{ name = item.name, label = item.label, count = added, metadata = metadata or nil }}
+			})
+		end)
+
 		for i = 1, #toSlot do
 			toSlot[i] = toSlot[i].item
 		end
@@ -1218,6 +1334,28 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb)
 	return success, response
 end
 
+--[[
+    AddItem Export - Atlas RP Extended Signature
+    
+    exports.ox_inventory:AddItem(inv, item, count, metadata, slot, cb, preventDrop, ignoreWeight)
+    
+    Parameters:
+        inv          - Player source (number) or inventory ID (string)
+        item         - Item name (string)
+        count        - Amount to add (number)
+        metadata     - Item metadata (table, optional)
+        slot         - Target slot (number, optional)
+        cb           - Callback function (optional)
+        preventDrop  - If true, prevents auto-drop when inventory full (boolean, optional, default: false)
+        ignoreWeight - If true, bypasses weight limit check (boolean, optional, for admin commands)
+    
+    Returns: success (boolean), response (string|SlotWithItem|nil)
+    
+    Behavior:
+        - Default: if inventory full (no slots OR over weight limit), item auto-drops on ground near player
+        - Admin commands should use: AddItem(src, item, count, meta, nil, nil, true, true)
+        - atlas_loot tables can configure prevent_drop per table via admin panel
+]]
 exports('AddItem', Inventory.AddItem)
 
 ---@param inv inventory
@@ -1392,6 +1530,12 @@ function Inventory.RemoveItem(inv, item, count, metadata, slot, ignoreTotal, str
 			lib.logger(inv.owner, 'removeItem', ('"%s" removed %sx %s from "%s"'):format(invokingResource, removed, item.name, inv.label))
 		end
 
+		pcall(function()
+			exports.atlas_logs:log('Inventory', 'Item Removed', (invokingResource or 'unknown') .. ' removed ' .. removed .. 'x ' .. (item.label or item.name) .. ' from ' .. inv.label, 'info', inv.player and inv.id or nil, {
+				items = {{ name = item.name, label = item.label, count = removed, metadata = metadata or nil }}
+			})
+		end)
+
 		return true
 	end
 
@@ -1541,7 +1685,8 @@ exports('CreateDropFromPlayer', function(playerId)
 	inventory.coords = vec3(coords.x, coords.y, coords.z-0.2)
 	Inventory.Drops[dropId] = {
 		coords = inventory.coords,
-		instance = Player(playerId).state.instance
+		instance = Player(playerId).state.instance,
+		model = getDropModelForWeight(playerInventory.weight)
 	}
 
 	Inventory.Clear(playerInventory)
@@ -1612,7 +1757,7 @@ local function dropItem(source, playerInventory, fromData, data)
 	if not inventory then return end
 
 	inventory.coords = data.coords
-	Inventory.Drops[dropId] = {coords = inventory.coords, instance = data.instance}
+	Inventory.Drops[dropId] = {coords = inventory.coords, instance = data.instance, model = getDropModelForWeight(toData.weight)}
 	playerInventory.changed = true
 
 	TriggerClientEvent('ox_inventory:createDrop', -1, dropId, Inventory.Drops[dropId], playerInventory.open and source, slot)
@@ -1620,6 +1765,13 @@ local function dropItem(source, playerInventory, fromData, data)
 	if server.loglevel > 0 then
 		lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, toData.name, playerInventory.label, dropId))
 	end
+
+	pcall(function()
+		local itemObj = Items(toData.name)
+		exports.atlas_logs:log('Inventory', 'Item Dropped', playerInventory.label .. ' dropped ' .. data.count .. 'x ' .. (itemObj and itemObj.label or toData.name), 'info', source, {
+			items = {{ name = toData.name, label = itemObj and itemObj.label or toData.name, count = data.count, metadata = toData.metadata or nil }}
+		})
+	end)
 
 	if server.syncInventory then server.syncInventory(playerInventory) end
 
@@ -1737,7 +1889,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 				count = data.count,
 			}
 
-			if toData and ((toData.name ~= fromData.name) or not toData.stack or (not table.matches(toData.metadata, fromData.metadata))) then
+			if toData and ((toData.name ~= fromData.name) or not toData.stack or (not table.matches(toData.metadata, fromData.metadata)) or hasDifferentDurability(toData.metadata, fromData.metadata)) then
 				-- Swap items
 				local toWeight = not sameInventory and (toInventory.weight - toData.weight + fromData.weight) or 0
 				local fromWeight = not sameInventory and (fromInventory.weight + toData.weight - fromData.weight) or 0
@@ -1775,6 +1927,21 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 						if server.loglevel > 0 then
 							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s" for %sx %s'):format(fromData.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id, toData.count, toData.name))
 						end
+
+						pcall(function()
+							local fromItemObj = Items(fromData.name)
+							local toItemObj = Items(toData.name)
+							local targetId = (toOtherPlayer and toInventory.id) or (fromOtherPlayer and fromInventory.id) or nil
+							exports.atlas_logs:log('Inventory', 'Items Swapped',
+								fromData.count .. 'x ' .. (fromItemObj and fromItemObj.label or fromData.name) .. ' swapped from ' .. (fromInventory.owner and fromInventory.label or fromInventory.id) .. ' to ' .. (toInventory.owner and toInventory.label or toInventory.id) .. ' for ' .. toData.count .. 'x ' .. (toItemObj and toItemObj.label or toData.name),
+								'info', source, {
+								items = {
+									{ name = fromData.name, label = fromItemObj and fromItemObj.label or fromData.name, count = fromData.count, metadata = fromData.metadata or nil },
+									{ name = toData.name, label = toItemObj and toItemObj.label or toData.name, count = toData.count, metadata = toData.metadata or nil }
+								},
+								targetPlayers = targetId and { targetId } or nil
+							})
+						end)
 					else return false, 'cannot_carry' end
 				else
 					if not TriggerEventHooks('swapItems', hookPayload) then return end
@@ -1782,7 +1949,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 					toData, fromData = Inventory.SwapSlots(fromInventory, toInventory, data.fromSlot, data.toSlot)
 				end
 
-			elseif toData and toData.name == fromData.name and table.matches(toData.metadata, fromData.metadata) then
+			elseif toData and toData.name == fromData.name and table.matches(toData.metadata, fromData.metadata) and not hasDifferentDurability(toData.metadata, fromData.metadata) then
 				-- Stack items
 				toData.count += data.count
 				fromData.count -= data.count
@@ -1818,6 +1985,17 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 						if server.loglevel > 0 then
 							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id))
 						end
+
+						pcall(function()
+							local itemObj = Items(fromData.name)
+							local targetId = (toOtherPlayer and toInventory.id) or (fromOtherPlayer and fromInventory.id) or nil
+							exports.atlas_logs:log('Inventory', 'Item Stacked',
+								data.count .. 'x ' .. (itemObj and itemObj.label or fromData.name) .. ' transferred from ' .. (fromInventory.owner and fromInventory.label or fromInventory.id) .. ' to ' .. (toInventory.owner and toInventory.label or toInventory.id),
+								'info', source, {
+								items = {{ name = fromData.name, label = itemObj and itemObj.label or fromData.name, count = data.count, metadata = fromData.metadata or nil }},
+								targetPlayers = targetId and { targetId } or nil
+							})
+						end)
 					end
 
 					fromData.weight = fromSlotWeight
@@ -1868,6 +2046,17 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 						if server.loglevel > 0 then
 							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id))
 						end
+
+						pcall(function()
+							local itemObj = Items(fromData.name)
+							local targetId = (toOtherPlayer and toInventory.id) or (fromOtherPlayer and fromInventory.id) or nil
+							exports.atlas_logs:log('Inventory', 'Item Moved',
+								data.count .. 'x ' .. (itemObj and itemObj.label or fromData.name) .. ' moved from ' .. (fromInventory.owner and fromInventory.label or fromInventory.id) .. ' to ' .. (toInventory.owner and toInventory.label or toInventory.id),
+								'info', source, {
+								items = {{ name = fromData.name, label = itemObj and itemObj.label or fromData.name, count = data.count, metadata = fromData.metadata or nil }},
+								targetPlayers = targetId and { targetId } or nil
+							})
+						end)
 					end
 
 					fromData.count -= data.count
@@ -1950,6 +2139,16 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 
 				if toInventory.player and not sameInventory then
 					server.syncInventory(toInventory)
+				end
+			end
+
+			-- Update drop model if weight changed
+			if not sameInventory then
+				if toInventory.type == 'drop' then
+					updateDropModel(toInventory.id, toInventory.weight)
+				end
+				if fromInventory.type == 'drop' then
+					updateDropModel(fromInventory.id, fromInventory.weight)
 				end
 			end
 
@@ -2153,7 +2352,7 @@ function Inventory.GetSlotForItem(inv, itemName, metadata)
 	for i = 1, inventory.slots do
 		local slotData = items[i]
 
-		if item.stack and slotData and slotData.name == item.name and table.matches(slotData.metadata, metadata) then
+		if item.stack and slotData and slotData.name == item.name and table.matches(slotData.metadata, metadata) and not hasDifferentDurability(slotData.metadata, metadata) then
 			return i
 		elseif not item.stack and not slotData and not emptySlot then
 			emptySlot = i
@@ -2482,6 +2681,15 @@ local function giveItem(playerId, slot, target, count)
 					if server.loglevel > 0 then
 						lib.logger(fromInventory.owner, 'giveItem', ('"%s" gave %sx %s to "%s"'):format(fromInventory.label, count, data.name, toInventory.label))
 					end
+
+					pcall(function()
+						local targetId = toInventory.player and toInventory.id or nil
+						local itemObj = Items(data.name)
+						exports.atlas_logs:log('Inventory', 'Item Given', fromInventory.label .. ' gave ' .. count .. 'x ' .. (itemObj and itemObj.label or data.name) .. ' to ' .. toInventory.label, 'info', fromInventory.id, {
+							items = {{ name = data.name, label = itemObj and itemObj.label or data.name, count = count, metadata = data.metadata or nil }},
+							targetPlayers = targetId and { targetId } or nil
+						})
+					end)
 
 					return
 				else
