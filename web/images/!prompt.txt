@@ -1,0 +1,14 @@
+Create a high-quality, realistic icon for a FiveM roleplaying game inventory.
+The icon must be centered and fully isolated on a real transparent background (no fake white/grey checkerboard pattern). The output must be an actual PNG with alpha transparency.
+Render the object with clean edges and even studio lighting, with no artificial shadows, reflections, glows, outlines, or backgrounds.
+The visual style should match modern GTA V / FiveM inventory icons — semi-realistic, slightly stylized, and clearly readable at small sizes (128x128 or 256x256).
+The item should look realistic and naturally used, handled, or harvested if applicable — not a flat logo or perfectly symmetrical. Subtle imperfections, wear, or natural variance are preferred when appropriate.
+If the item is a firearm, orient the weapon so it is pointing to the right (muzzle to the right, stock/grip to the left). This rule does not apply to melee weapons or throwables (those may be angled or positioned naturally).
+Do not include any text, UI elements, watermarks, branding, labels, or extra props. Only the object itself should be visible.
+Export as PNG with transparent background (alpha channel) and ensure no checkerboard pattern is drawn into the image.
+
+Item Name:
+[Insert item name here]
+
+Item Description:
+[Insert detailed description here — materials, color, wear level (fresh, slightly worn, rusty, dried, sticky, etc.), size, angle (if not a firearm), and any other specifics.]

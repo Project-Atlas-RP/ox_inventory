@@ -1,0 +1,959 @@
+/*
+ * Atlas RP - Custom ox_inventory UI Styles
+ * Clean, minimal design matching Atlas RP's UI system
+ */
+
+/* ========================================
+   CSS Variables - Atlas RP Design System
+   ======================================== */
+:root {
+    /* Colors - matching atlas_help, atlas_settings, atlas_loot */
+    --bg-primary: #0f0f0f;
+    --bg-secondary: #1a1a1a;
+    --bg-tertiary: #242424;
+    --bg-hover: #2a2a2a;
+    --border: #333;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --text-muted: #666;
+    --accent: #6366f1;
+    --accent-hover: #5457e5;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    
+    /* Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    
+    /* Transitions */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.2s ease;
+}
+
+/* ========================================
+   Base & Typography
+   ======================================== */
+body {
+    font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+p, span, div {
+    font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+/* ========================================
+   Main Inventory Wrapper
+   ======================================== */
+.inventory-wrapper {
+    gap: 30px !important;
+    padding: 20px;
+    display: flex !important;
+    flex-wrap: wrap !important;
+}
+
+/* Reposition inventory-control - centered floating bar */
+.inventory-control {
+    position: fixed !important;
+    bottom: 20px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    right: auto !important;
+    width: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+    background: rgba(15, 15, 15, 0.95) !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 16px !important;
+    z-index: 100 !important;
+    box-shadow: none !important;
+}
+
+.inventory-control .inventory-control-wrapper {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-direction: row !important;
+}
+
+/* ========================================
+   Inventory Grid Container (Left & Right panels)
+   ======================================== */
+.inventory-grid-wrapper {
+    background: var(--bg-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 10px !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+    gap: 8px !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+    position: relative !important;
+    will-change: transform !important; /* Optimize for transform changes */
+}
+
+/* Player inventory (left panel) - higher z-index to overlap other panel */
+.inventory-grid-wrapper:first-of-type {
+    z-index: 20 !important;
+}
+
+/* Other inventory (right panel) - lower z-index */
+.inventory-grid-wrapper:last-of-type {
+    z-index: 10 !important;
+}
+
+/* Right panel same padding */
+.inventory-grid-wrapper:last-child {
+    padding-bottom: 10px !important;
+}
+
+.inventory-grid-wrapper:hover {
+    border-color: #444 !important;
+}
+
+/* Active dragging state */
+.inventory-grid-wrapper[style*="translate"] {
+    box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* ========================================
+   Grid Header (Inventory Title + Weight)
+   ======================================== */
+.inventory-grid-header-wrapper {
+    background: var(--bg-secondary) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 10px 16px !important;
+    margin-bottom: 8px !important;
+    border: 1px solid var(--border) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    user-select: none !important;
+}
+
+/* Title (first p) */
+.inventory-grid-header-wrapper p:first-of-type {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: -0.01em !important;
+    color: var(--text-primary) !important;
+    flex: 1 !important;
+}
+
+/* Weight (last p) */
+.inventory-grid-header-wrapper p:last-of-type {
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: var(--text-secondary) !important;
+    margin-left: auto !important;
+}
+
+/* ========================================
+   Weight Bar
+   ======================================== */
+.weight-bar {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: none !important;
+    border-radius: 999px !important;
+    height: 6px !important;
+    overflow: hidden !important;
+}
+
+.weight-bar > div {
+    background: var(--accent) !important;
+    border-radius: 999px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* ========================================
+   Inventory Grid
+   ======================================== */
+.inventory-grid-container {
+    gap: 6px !important;
+    padding: 4px !important;
+    height: calc((10.42vh * 5) + (6px * 4) + 8px) !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-color) transparent;
+}
+
+.inventory-grid-container::-webkit-scrollbar {
+    display: block !important;
+    width: 6px !important;
+}
+
+.inventory-grid-container::-webkit-scrollbar-track {
+    background: transparent !important;
+    border-radius: 999px !important;
+}
+
+.inventory-grid-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-radius: 999px !important;
+}
+
+.inventory-grid-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* ========================================
+   Inventory Slots
+   ======================================== */
+.inventory-slot,
+.hotbar-item-slot {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    transition: all var(--transition-fast) !important;
+    overflow: hidden !important;
+}
+
+.inventory-slot:hover,
+.hotbar-item-slot:hover {
+    background-color: var(--bg-hover) !important;
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Slot with item - subtle highlight and uniform sizing */
+.inventory-slot[style*="background-image"] {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    background-size: 60% !important;
+    background-position: center 40% !important;
+}
+
+/* ========================================
+   Slot Labels
+   ======================================== */
+.inventory-slot-label-box {
+    background: rgba(0, 0, 0, 0.7) !important;
+    border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.inventory-slot-label-text {
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    color: var(--text-secondary) !important;
+    padding: 4px 6px !important;
+    letter-spacing: -0.01em !important;
+}
+
+/* ========================================
+   Slot Number Badge
+   ======================================== */
+.inventory-slot-number {
+    background: var(--accent) !important;
+    color: white !important;
+    font-weight: 600 !important;
+    font-size: 10px !important;
+    padding: 3px 6px !important;
+    border-radius: 0 0 var(--radius-sm) 0 !important;
+}
+
+/* ========================================
+   Item Count & Info (Weight x Count at top-right)
+   ======================================== */
+.item-slot-info-wrapper {
+    padding: 0 !important;
+    position: absolute !important;
+    top: 4px !important;
+    right: 4px !important;
+    left: auto !important;
+    bottom: auto !important;
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 3px !important;
+}
+
+.item-slot-info-wrapper p {
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8) !important;
+    background: rgba(0, 0, 0, 0.7) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    text-align: center !important;
+}
+
+/* ========================================
+   Durability Bar
+   ======================================== */
+.durability-bar {
+    background: rgba(0, 0, 0, 0.6) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    margin: 0 4px 4px 4px !important;
+    overflow: hidden !important;
+}
+
+.durability-bar > div {
+    border-radius: 2px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* ========================================
+   Currency Display
+   ======================================== */
+.item-slot-currency-wrapper p,
+.item-slot-price-wrapper p {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--success) !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8) !important;
+}
+
+/* ========================================
+   Drag Preview
+   ======================================== */
+.item-drag-preview {
+    background-color: var(--bg-tertiary) !important;
+    border: 2px solid var(--accent) !important;
+    border-radius: var(--radius-md) !important;
+    opacity: 0.9 !important;
+    z-index: 9999 !important;
+    pointer-events: none !important;
+}
+
+/* ========================================
+   Tooltip
+   ======================================== */
+.tooltip-wrapper {
+    background: var(--bg-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+    padding: 12px 14px !important;
+    min-width: 200px !important;
+    z-index: 9999 !important;
+}
+
+@keyframes tooltipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tooltip-header-wrapper p {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+}
+
+.tooltip-wrapper p {
+    font-size: 12px !important;
+    color: var(--text-secondary) !important;
+    line-height: 1.5 !important;
+}
+
+.tooltip-description {
+    border-top: 1px solid var(--border) !important;
+    margin-top: 8px !important;
+    padding-top: 8px !important;
+}
+
+/* ========================================
+   Context Menu
+   ======================================== */
+.context-menu-list {
+    background: var(--bg-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+    padding: 4px !important;
+    min-width: 180px !important;
+    z-index: 9999 !important;
+}
+
+/* Floating UI portal containers - ensure they're above inventory panels */
+[data-floating-ui-portal] {
+    z-index: 9999 !important;
+}
+
+[data-floating-ui-portal] > div {
+    z-index: 9999 !important;
+}
+
+.context-menu-item {
+    background: transparent !important;
+    border: none !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    color: var(--text-secondary) !important;
+    transition: all var(--transition-fast) !important;
+}
+
+.context-menu-item:hover {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ========================================
+   Inventory Control (Bottom Action Bar)
+   ======================================== */
+.inventory-control .inventory-control-wrapper {
+    gap: 6px !important;
+    align-items: flex-end !important;
+}
+
+.inventory-control .inventory-control-input {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    color: var(--text-primary) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    padding: 0 !important;
+    width: 105px !important;
+    height: 40px !important;
+    text-align: center !important;
+    transition: all var(--transition-fast) !important;
+    box-sizing: border-box !important;
+}
+
+.inventory-control .inventory-control-input:focus {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+    outline: none !important;
+}
+
+.inventory-control .inventory-control-input::placeholder {
+    color: var(--text-muted) !important;
+}
+
+.inventory-control .inventory-control-button {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    color: var(--text-secondary) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    padding: 0 !important;
+    padding-bottom: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    white-space: nowrap !important;
+    width: 105px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+}
+
+/* Drop zone expansion when dragging items - expands upward */
+.inventory-control .inventory-control-button.drop-zone-active {
+    padding: 0 !important;
+    padding-bottom: 10px !important;
+    width: 105px !important;
+    min-height: 100px !important;
+    background: rgba(99, 102, 241, 0.08) !important;
+    border: 2px dashed rgba(99, 102, 241, 0.5) !important;
+    border-radius: 12px !important;
+    color: rgba(99, 102, 241, 0.9) !important;
+}
+
+.inventory-control .inventory-control-button.drop-zone-active:hover {
+    background: rgba(99, 102, 241, 0.15) !important;
+    border-color: rgba(99, 102, 241, 0.8) !important;
+    color: #a5b4fc !important;
+    transform: scale(1.02) !important;
+}
+
+/* Close button should NOT expand */
+.inventory-control .inventory-control-button:last-child.drop-zone-active {
+    padding: 10px 0 !important;
+    width: 105px !important;
+    min-height: 40px !important;
+    background: rgba(239, 68, 68, 0.15) !important;
+    border: 1px solid rgba(239, 68, 68, 0.3) !important;
+    border-radius: 10px !important;
+    color: #f87171 !important;
+}
+
+.inventory-control .inventory-control-button:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: white !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    transform: translateY(-1px) !important;
+}
+
+.inventory-control .inventory-control-button:active {
+    transform: translateY(0) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Close button special styling */
+.inventory-control .inventory-control-button:last-child {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    color: #f87171 !important;
+}
+
+.inventory-control .inventory-control-button:last-child:hover {
+    background: rgba(239, 68, 68, 0.25) !important;
+    border-color: rgba(239, 68, 68, 0.5) !important;
+    color: #fca5a5 !important;
+}
+
+/* ========================================
+   Hotbar
+   ======================================== */
+.hotbar-container {
+    gap: 6px !important;
+    bottom: 2.5vh !important;
+}
+
+.hotbar-item-slot {
+    width: 9vh !important;
+    height: 9vh !important;
+    background-size: 5vh !important;
+    background-position: center 30% !important;
+    background-repeat: no-repeat !important;
+}
+
+/* ========================================
+   Item Notifications
+   ======================================== */
+.item-notification-container {
+    bottom: 18vh !important;
+}
+
+.item-notification-item-box {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    background-size: 5vh !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+}
+
+.item-notification-action-box {
+    background-color: var(--bg-tertiary) !important;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.item-notification-action-box p {
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    padding: 5px 8px !important;
+    letter-spacing: 0.02em !important;
+    color: var(--text-primary) !important;
+}
+
+/* ========================================
+   Useful Controls Dialog
+   ======================================== */
+.useful-controls-dialog-overlay {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    z-index: 100 !important;
+}
+
+.useful-controls-dialog {
+    background: var(--bg-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+    padding: 20px !important;
+    z-index: 100 !important;
+}
+
+.useful-controls-dialog-title {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    border-bottom: 1px solid var(--border) !important;
+    padding-bottom: 12px !important;
+}
+
+.useful-controls-dialog-close {
+    background: var(--bg-tertiary) !important;
+    border-radius: var(--radius-sm) !important;
+    transition: all var(--transition-fast) !important;
+}
+
+.useful-controls-dialog-close:hover {
+    background: var(--danger) !important;
+}
+
+.useful-controls-exit-button {
+    display: none !important;
+}
+
+/* ========================================
+   Shop UI - Product Card Layout
+   ======================================== */
+
+/* Shop panel wrapper */
+.inventory-grid-wrapper[data-inventory-type="shop"] {
+    background: var(--bg-primary) !important;
+    border: 1px solid var(--border) !important;
+    width: fit-content !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* Shop header - branded with icon and shop name */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border) !important;
+    padding: 10px 14px !important;
+    gap: 10px !important;
+    overflow: hidden !important;
+}
+
+/* Shop header icon container */
+.shop-header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    background: rgba(99, 102, 241, 0.15);
+    border-radius: 8px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+/* Shop title styling */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper p:first-of-type {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+}
+
+/* Hide weight display in shops */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper p:last-of-type {
+    display: none !important;
+}
+
+/* Hide weight bar in shops */
+.inventory-grid-wrapper[data-inventory-type="shop"] .weight-bar {
+    display: none !important;
+}
+
+/* Shop grid */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-container {
+    display: grid !important;
+    grid-template-columns: repeat(5, 10.2vh) !important;
+    grid-auto-rows: 10.42vh !important;
+    gap: 6px !important;
+    padding: 4px !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    height: auto !important;
+}
+
+/* Shop item slots - compact product card */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+/* Product card hover */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot:hover {
+    background-color: var(--bg-hover) !important;
+    border-color: rgba(99, 102, 241, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Purchase overlay on hover */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot[style*="background-image"]:not([style*="url(none)"]):hover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(99, 102, 241, 0.08);
+    border-radius: 10px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Image sizing - keep within 100x100 to prevent pixelation */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot[style*="background-image"] {
+    background-size: min(4.5vh, 80px) !important;
+    background-position: center 25% !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Empty product slot */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot:not([style*="background-image"]),
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot[style*='url("none")'],
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot[style*="url(none)"] {
+    border-style: dashed !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    background-color: rgba(26, 26, 26, 0.4) !important;
+}
+
+/* Hide weight info on shop items (irrelevant) */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper p:first-child {
+    display: none !important;
+}
+
+/* Stock count badge - top right */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper {
+    top: 2px !important;
+    right: 2px !important;
+    gap: 0 !important;
+}
+
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper p {
+    font-size: 9px !important;
+    font-weight: 600 !important;
+    background: rgba(0, 0, 0, 0.65) !important;
+    padding: 1px 4px !important;
+    border-radius: 4px !important;
+    color: var(--text-secondary) !important;
+}
+
+/* Compact inner wrapper - no vertical spreading */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-wrapper {
+    justify-content: flex-end !important;
+}
+
+/* Hide the header wrapper in shop (weight/count badge area at top) */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-header-wrapper {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    left: auto !important;
+    z-index: 2 !important;
+}
+
+/* Shop label box - product name footer */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot-label-box {
+    background: var(--bg-tertiary) !important;
+    padding: 2px 4px !important;
+    border-radius: 0 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+    order: 1 !important;
+}
+
+/* Product name text */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot-label-text {
+    font-size: 9px !important;
+    font-weight: 500 !important;
+    color: var(--text-primary) !important;
+    letter-spacing: 0 !important;
+    padding: 0 !important;
+    text-align: center !important;
+    display: block !important;
+    text-transform: none !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Price footer bar */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-price-wrapper,
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-currency-wrapper {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 3px !important;
+    padding: 2px 4px !important;
+    background: rgba(34, 197, 94, 0.08) !important;
+    border-top: 1px solid rgba(34, 197, 94, 0.12) !important;
+    order: 2 !important;
+}
+
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-price-wrapper p {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: var(--success) !important;
+    text-shadow: none !important;
+}
+
+/* Currency display (non-money items) */
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-currency-wrapper {
+    background: rgba(245, 158, 11, 0.08) !important;
+    border-top-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-currency-wrapper p {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: var(--warning) !important;
+    text-shadow: none !important;
+}
+
+.inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-currency-wrapper img {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+/* Out of stock items */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot[style*="grayscale"] {
+    opacity: 0.35 !important;
+}
+
+/* Slot number in shop - hidden */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-slot-number {
+    display: none !important;
+}
+
+/* Drag hint label below grid */
+.shop-drag-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+.shop-drag-hint svg {
+    opacity: 0.5;
+}
+
+.useful-controls-button {
+    position: absolute !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    width: 44px !important;
+    height: 44px !important;
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--text-secondary) !important;
+    fill: var(--text-secondary) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    transition: all var(--transition-fast) !important;
+    z-index: 100 !important;
+}
+
+.useful-controls-button:hover {
+    background: var(--bg-hover) !important;
+    border-color: #444 !important;
+    color: var(--text-primary) !important;
+    fill: var(--text-primary) !important;
+    cursor: pointer !important;
+}
+
+.divider {
+    background: var(--border) !important;
+    margin: 8px 0 !important;
+}
+
+/* ========================================
+   Crafting Tooltip
+   ======================================== */
+.tooltip-crafting-duration {
+    color: var(--warning) !important;
+}
+
+.tooltip-crafting-duration p {
+    color: var(--warning) !important;
+    font-weight: 500 !important;
+}
+
+.tooltip-ingredient {
+    padding: 4px 0 !important;
+}
+
+.tooltip-ingredient img {
+    border-radius: 4px !important;
+    background: var(--bg-tertiary) !important;
+}
+
+/* ========================================
+   Transitions
+   ======================================== */
+.transition-fade-enter-active,
+.transition-fade-exit-active {
+    transition: opacity 0.2s ease !important;
+}
+
+.transition-slide-up-enter-active,
+.transition-slide-up-exit-active {
+    transition: all 0.2s ease !important;
+}
+
+/* ========================================
+   Selection States
+   ======================================== */
+.inventory-slot[data-selected="true"],
+.inventory-slot.selected {
+    border-color: rgba(99, 102, 241, 0.7) !important;
+    background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* ========================================
+   Empty Slot Indicator
+   ======================================== */
+.inventory-slot:not([style*="background-image"]):not(:hover) {
+    background-color: var(--bg-secondary) !important;
+}
+
+/* ========================================
+   Responsive Adjustments
+   ======================================== */
+@media (max-width: 1600px) {
+    .inventory-wrapper {
+        gap: 20px !important;
+    }
+    
+    .inventory-grid-wrapper {
+        padding: 12px !important;
+    }
+}
+
+/* ========================================
+   Gun Rack - Emergency Vehicle Glovebox
+   ======================================== */
+
+/* Container below the glovebox grid */
+.gun-rack-container {
+    display: flex;
+    gap: 6px;
+    padding-left: 4px;
+    justify-content: flex-start;
+    position: relative;
+}
+
+/* Gun rack slots need explicit sizing since they're outside the CSS grid */
+.gun-rack-container .inventory-slot {
+    width: 10.2vh;
+    height: 10.42vh;
+}
+
+/* Shrink grid by 1 row when gun rack is visible so total height stays the same */
+.gun-rack-active {
+    height: calc((10.42vh * 4) + (6px * 3) + 2px) !important;
+}
+
+/* Gun icon overlay - sits on top of slot, not inside it */
+/* Styles injected via JS #gun-rack-style tag */
+
+/* Hide gun icon when slot has an item */
+.gun-rack-slot.gun-rack-has-item::before {
+    display: none !important;
+}
