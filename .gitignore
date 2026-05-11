@@ -2,6 +2,7 @@ modules/logs/**/
 .cfg
 node_modules
 .idea
+.luarc.jsonc
 
 # atlasrp staging / scratch — not shipped with the resource
 web/images_archive/
