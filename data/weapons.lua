@@ -355,6 +355,7 @@ return {
 			label = 'Knife',
 			weight = 300,
 			durability = 0.1,
+			description = 'For when you just gotta stab someone.'
 		},
 
 		['WEAPON_KNUCKLE'] = {
@@ -481,6 +482,7 @@ return {
 			weight = 1130,
 			durability = 0.1,
 			ammoname = 'ammo-9',
+			description = 'God bless the Second Amendment.'
 		},
 
 		['WEAPON_PISTOL50'] = {
@@ -715,6 +717,109 @@ return {
 			label = 'Tear Gas',
 			weight = 600,
 			throwable = true,
+		},
+
+		--Custom Weapons
+		['WEAPON_HUNTINGRIFLE'] = {
+			label = 'Hunting Rifle',
+			weight = 5000,
+			durability = 0.5,
+			ammoname = 'ammo-hunting',
+			description = 'A rifle designed for hunting',
+			canThrow = false
+		},
+		['WEAPON_DP9PISTOL'] = {
+			label = 'H&L D&P 9',
+			description = "A D&P 9 manufactured by Hawk & Little",
+			weight = 800,
+			durability = 0.2,
+			ammoname = 'ammo-9'
+		},
+		['WEAPON_FOSSOFF'] = {
+			label = '"Foss-Off" Fossburg',
+			weight = 4400,
+			durability = 0.05,
+			ammoname = 'ammo-shotgun'
+		},
+		['WEAPON_VP897'] = {
+			label = 'VP-897',
+			description = "A VP-897 manufactured by Shrewsbury",
+			weight = 800,
+			durability = 0.2,
+			ammoname = 'ammo-45'
+		},
+		['WEAPON_ENDURANCEPISTOL'] = {
+			label = 'Endurance Pistol',
+			description = "An Endurance Pistol manufactured by Shrewsbury",
+			weight = 800,
+			durability = 0.2,
+			ammoname = 'ammo-45'
+		},
+		['WEAPON_MICROCLASSIC'] = {
+			label = 'Micro Classic SMG',
+			weight = 3000,
+			durability = 0.1,
+			ammoname = 'ammo-45'
+		},
+		['WEAPON_MEDBAG'] = {
+			label = 'Medbag',
+			weight = 800,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_PICKAXE'] = {
+			label = 'Pickaxe',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_CRUTCH'] = {
+			label = 'Crutch',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_CLEAVER'] = {
+			label = 'Cleaver',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_KITCHENKNIFE'] = {
+			label = 'Kitchen Knife',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_HOMEMADEKNIFE'] = {
+			label = 'Homemade Knife',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_SCREWDRIVER'] = {
+			label = 'Screwdriver',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_SHIV'] = {
+			label = 'Shiv',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_SHOVEL'] = {
+			label = 'Shovel',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
+		},
+		['WEAPON_SLEDGEHAMMER'] = {
+			label = 'Sledge Hammer',
+			weight = 1500,
+			durability = 0.1,
+			canThrow = false
 		},
 	},
 
@@ -1869,6 +1974,11 @@ return {
 
 		['ammo-sniper'] = {
 			label = '7.62x51',
+			weight = 9,
+		},
+
+		['ammo-hunting'] = {
+			label = '.30-06',
 			weight = 9,
 		},
 
