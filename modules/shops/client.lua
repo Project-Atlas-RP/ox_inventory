@@ -2,56 +2,90 @@ if not lib then return end
 
 local shopTypes = {}
 local shops = {}
+local modelShops = {}
 local createBlip = require 'modules.utils.client'.CreateBlip
+local ShopHours = require 'modules.shophours'
 
-for shopType, shopData in pairs(lib.load('data.shops') or {} --[[@as table<string, OxShop>]]) do
-	local shop = {
-		name = shopData.name,
-		groups = shopData.groups or shopData.jobs,
-		blip = shopData.blip,
-		label = shopData.label,
-        icon = shopData.icon
-	}
+local function buildShopTypes(shopDefinitions)
+	table.wipe(shopTypes)
 
-	if shared.target then
-		shop.model = shopData.model
-		shop.targets = shopData.targets
-	else
-		shop.locations = shopData.locations
-	end
+	for shopType, shopData in pairs(shopDefinitions or {} --[[@as table<string, OxShop>]]) do
+		local shop = {
+			name = shopData.name,
+			groups = shopData.groups or shopData.jobs,
+			blip = shopData.blip,
+			label = shopData.label,
+			icon = shopData.icon,
+			opens = shopData.opens,
+			closes = shopData.closes,
+			model = shopData.model,
+			targets = shopData.targets,
+			locations = shopData.locations,
+		}
 
-	shopTypes[shopType] = shop
-	local blip = shop.blip
+		shopTypes[shopType] = shop
+		local blip = shop.blip
 
-	if blip then
-		blip.name = ('ox_shop_%s'):format(shopType)
-		AddTextEntry(blip.name, shop.name or shopType)
+		if blip then
+			blip.name = ('ox_shop_%s'):format(shopType)
+			AddTextEntry(blip.name, shop.name or shopType)
+		end
 	end
 end
 
+buildShopTypes(lib.load('data.shops') or {})
+
 ---@param point CPoint
 local function onEnterShop(point)
+	-- Check if shop is open based on configured hours
+	if point.opens or point.closes then
+		local shopConfig = { opens = point.opens, closes = point.closes, name = point.type }
+		if not ShopHours.isShopOpen(shopConfig) then
+			return -- Don't spawn NPC if shop is closed
+		end
+	end
+
 	if not point.entity then
-		local model = lib.requestModel(point.ped)
+		local model = lib.requestModel(point.ped or point.model)
 
 		if not model then return end
 
-		local entity = CreatePed(0, model, point.coords.x, point.coords.y, point.coords.z, point.heading, false, true)
+		local entity
+		if point.ped then
+			entity = CreatePed(0, model, point.coords.x, point.coords.y, point.coords.z, point.heading, false, true)
 
-		if point.scenario then TaskStartScenarioInPlace(entity, point.scenario, 0, true) end
+			if point.scenario then TaskStartScenarioInPlace(entity, point.scenario, 0, true) end
+
+			FreezeEntityPosition(entity, true)
+			SetEntityInvincible(entity, true)
+			SetBlockingOfNonTemporaryEvents(entity, true)
+		else
+			entity = CreateObjectNoOffset(model, point.coords.x, point.coords.y, point.coords.z, false, false, false)
+			SetEntityHeading(entity, point.heading or 0.0)
+			FreezeEntityPosition(entity, true)
+		end
 
 		SetModelAsNoLongerNeeded(model)
-		FreezeEntityPosition(entity, true)
-		SetEntityInvincible(entity, true)
-		SetBlockingOfNonTemporaryEvents(entity, true)
+
+		local shopConfig = { opens = point.opens, closes = point.closes, name = point.type }
+		local statusLabel = ShopHours.getShopStatus(shopConfig)
+		local interactionLabel = statusLabel == 'Open' and point.label or ('CLOSED - %s'):format(statusLabel)
 
 		exports.ox_target:addLocalEntity(entity, {
             {
                 icon = point.icon or 'fas fa-shopping-basket',
-                label = point.label,
+                label = interactionLabel,
                 groups = point.groups,
                 onSelect = function()
-                    client.openInventory('shop', { id = point.invId, type = point.type })
+					if ShopHours.isShopOpen(shopConfig) then
+						client.openInventory('shop', { id = point.invId, type = point.type })
+					else
+						lib.notify({
+							title = 'Shop Closed',
+							description = ShopHours.getShopStatus(shopConfig),
+							type = 'error'
+						})
+					end
                 end,
                 iconColor = point.iconColor,
                 distance = point.shopDistance or 2.0
@@ -76,10 +110,26 @@ local function onExitShop(point)
 end
 
 local function hasShopAccess(shop)
-	return not shop.groups or client.hasGroup(shop.groups)
+	if shop.groups and not client.hasGroup(shop.groups) then
+		return false
+	end
+	
+	-- Check shop hours
+	if shop.opens or shop.closes then
+		return ShopHours.isShopOpen(shop)
+	end
+	
+	return true
 end
 
 local function wipeShops()
+	for i = 1, #modelShops do
+		local modelShop = modelShops[i]
+		exports.ox_target:removeModel(modelShop.models, modelShop.name)
+	end
+
+	table.wipe(modelShops)
+
 	for i = 1, #shops do
 		local shop = shops[i]
 
@@ -104,6 +154,7 @@ end
 
 local function refreshShops()
 	wipeShops()
+	ShopHours.clearCache() -- Clear shop hours cache when refreshing
 
 	local id = 0
 
@@ -112,7 +163,7 @@ local function refreshShops()
 		local label = shop.label or locale('open_label', shop.name)
 
 		if shared.target then
-			if shop.model then
+			if shop.model and #shop.model > 0 then
 				if not hasShopAccess(shop) then goto skipLoop end
 
 				exports.ox_target:removeModel(shop.model, shop.name)
@@ -127,7 +178,11 @@ local function refreshShops()
                         distance = 2
                     },
 				})
-			elseif shop.targets then
+				modelShops[#modelShops + 1] = {
+					models = shop.model,
+					name = shop.name,
+				}
+			elseif shop.targets and #shop.targets > 0 then
 				for i = 1, #shop.targets do
 					local target = shop.targets[i]
 					local shopid = ('%s-%s'):format(type, i)
@@ -152,6 +207,30 @@ local function refreshShops()
 							onEnter = onEnterShop,
 							onExit = onExitShop,
 							shopDistance = target.distance,
+							opens = shop.opens,
+							closes = shop.closes,
+						})
+					elseif target.model then
+						id += 1
+
+						shops[id] = lib.points.new({
+							coords = target.loc,
+							heading = target.heading or 0.0,
+							distance = 60,
+							inv = 'shop',
+							invId = i,
+							type = type,
+							blip = blip and hasShopAccess(shop) and createBlip(blip, target.loc),
+							model = target.model,
+							label = label,
+							groups = shop.groups,
+							icon = shop.icon or 'fas fa-shopping-basket',
+							iconColor = target.iconColor,
+							onEnter = onEnterShop,
+							onExit = onExitShop,
+							shopDistance = target.distance,
+							opens = shop.opens,
+							closes = shop.closes,
 						})
 					else
 						if not hasShopAccess(shop) then goto nextShop end
@@ -177,6 +256,35 @@ local function refreshShops()
 					end
 
 					::nextShop::
+				end
+			elseif shop.locations and #shop.locations > 0 then
+				if not hasShopAccess(shop) then goto skipLoop end
+
+				for i = 1, #shop.locations do
+					local coords = shop.locations[i]
+					local shopid = ('%s-location-%s'):format(type, i)
+					id += 1
+
+					shops[id] = {
+						zoneId = exports.ox_target:addSphereZone({
+							coords = coords,
+							radius = 0.8,
+							debug = false,
+							options = {
+								{
+									name = shopid,
+									icon = shop.icon or 'fas fa-shopping-basket',
+									label = label,
+									groups = shop.groups,
+									onSelect = function()
+										client.openInventory('shop', { id = i, type = type })
+									end,
+									distance = 2.0,
+								}
+							}
+						}),
+						blip = blip and createBlip(blip, coords)
+					}
 				end
 			end
 		elseif shop.locations then
@@ -207,6 +315,53 @@ local function refreshShops()
 		::skipLoop::
 	end
 end
+
+-- Automatic shop hours management system
+-- This checks frequently for in-game time changes and refreshes shops accordingly
+local lastHour = GetClockHours()
+CreateThread(function()
+	while true do
+		Wait(30000) -- Check every 30 seconds (in-game time changes faster)
+		
+		local currentHour = GetClockHours()
+		if currentHour ~= lastHour then
+			lastHour = currentHour
+			print(('[ShopHours] In-game time changed to %d:00 - Refreshing shop availability'):format(currentHour))
+			
+			-- Check each shop individually to manage NPCs based on hours
+			for i = 1, #shops do
+				local shop = shops[i]
+				if shop and (shop.opens or shop.closes) then
+					local shopConfig = { opens = shop.opens, closes = shop.closes, name = shop.type }
+					local isOpen = ShopHours.isShopOpen(shopConfig)
+					
+					-- If shop is now closed and has an NPC, remove it
+					if not isOpen and shop.entity then
+						onExitShop(shop)
+						print(('[ShopHours] Removed NPC for closed shop: %s'):format(shop.type))
+					-- If shop is now open and doesn't have an NPC, spawn it
+					elseif isOpen and not shop.entity and shop.ped then
+						onEnterShop(shop)
+						print(('[ShopHours] Spawned NPC for opened shop: %s'):format(shop.type))
+					end
+				end
+			end
+		end
+	end
+end)
+
+RegisterNetEvent('ox_inventory:shopsUpdated', function(shopDefinitions)
+	buildShopTypes(shopDefinitions)
+	refreshShops()
+end)
+
+CreateThread(function()
+	local runtimeShopDefinitions = lib.callback.await('ox_inventory:getShopDefinitions', false)
+
+	if type(runtimeShopDefinitions) == 'table' then
+		buildShopTypes(runtimeShopDefinitions)
+	end
+end)
 
 return {
 	refreshShops = refreshShops,

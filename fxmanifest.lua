@@ -39,9 +39,11 @@ files {
     'web/build/index.html',
     'web/build/assets/*.js',
     'web/build/assets/*.css',
+    'web/build/assets/custom.css',
     'web/images/*.png',
     'modules/**/shared.lua',
     'modules/**/client.lua',
     'modules/bridge/**/client.lua',
+    'modules/shophours.lua',
     'data/*.lua',
 }
