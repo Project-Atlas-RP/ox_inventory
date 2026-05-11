@@ -14,7 +14,7 @@ local trash = {
 	{description = 'An empty soda can.', weight = 20, image = 'trash_can'},
 	{description = 'A mouldy piece of bread.', weight = 70, image = 'trash_bread'},
 	{description = 'An empty chips bag.', weight = 5, image = 'trash_chips'},
-	{description = 'A slightly used pair of panties.', weight = 20, image = 'panties'},
+	{description = 'An empty chocolate bar wrapper.', weight = 20, image = 'choco_chunk'},
 	{description = 'An old rolled up newspaper.', weight = 200, image = 'WEAPON_ACIDPACKAGE'},
 }
 
@@ -231,10 +231,11 @@ function Items.Metadata(inv, item, metadata, count)
 	end
 
 	if metadata.imageurl and Utils.IsValidImageUrl then
+		local pid = inv.player and inv.id or nil
 		if Utils.IsValidImageUrl(metadata.imageurl) then
-			Utils.DiscordEmbed('Valid image URL', ('Created item "%s" (%s) with valid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 65280)
+			Utils.DiscordEmbed('Valid image URL', ('Created item "%s" (%s) with valid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 65280, pid)
 		else
-			Utils.DiscordEmbed('Invalid image URL', ('Created item "%s" (%s) with invalid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 16711680)
+			Utils.DiscordEmbed('Invalid image URL', ('Created item "%s" (%s) with invalid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 16711680, pid)
 			metadata.imageurl = nil
 		end
 	end
@@ -366,5 +367,15 @@ end
 -- end)
 
 -----------------------------------------------------------------------------------------------
+
+-- Parachute item is configured with consume=0 (see data/items.lua).
+-- The client fires this event when the parachute actually deploys so we can consume the item then,
+-- not when the bag is first equipped.
+RegisterNetEvent('atlas_inventory:parachuteDeployed', function(slot)
+	local src = source
+	local inv = require 'modules.inventory.server'
+	if not inv then return end
+	inv.RemoveItem(src, 'parachute', 1, nil, slot)
+end)
 
 return Items

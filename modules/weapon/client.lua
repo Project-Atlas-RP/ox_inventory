@@ -95,6 +95,20 @@ function Weapon.Equip(item, data, noWeaponAnim)
 end
 
 function Weapon.Disarm(currentWeapon, noAnim)
+	-- -- Skip physical disarm if atlas_itemthrowing is handling weapon drop on death
+	-- -- But still clear the currentWeapon state so ox_inventory knows we're unarmed
+	-- if LocalPlayer.state.lns_skipDeathDisarm then
+	-- 	if currentWeapon?.timer then
+	-- 		currentWeapon.timer = nil
+	-- 		TriggerServerEvent('ox_inventory:updateWeapon')
+	-- 		TriggerEvent('ox_inventory:currentWeapon')
+	-- 	end
+	-- 	Utils.WeaponWheel()
+	-- 	-- Return nil to clear the weapon state, but don't remove weapons from ped
+	-- 	-- (atlas_itemthrowing already handled the physical weapon)
+	-- 	return nil
+	-- end
+
 	if currentWeapon?.timer then
 		currentWeapon.timer = nil
 

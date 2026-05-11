@@ -111,22 +111,87 @@ Item('armour', function(data, slot)
 end)
 
 client.parachute = false
-Item('parachute', function(data, slot)
-	if not client.parachute then
-		ox_inventory:useItem(data, function(data)
-			if data then
-				local chute = `GADGET_PARACHUTE`
-				SetPlayerParachuteTintIndex(PlayerData.id, -1)
-				GiveWeaponToPed(cache.ped, chute, 0, true, false)
-				SetPedGadget(cache.ped, chute, true)
-				lib.requestModel(1269906701)
-				client.parachute = {CreateParachuteBagObject(cache.ped, true, true), slot?.metadata?.type or -1}
-				if slot.metadata.type then
-					SetPlayerParachuteTintIndex(PlayerData.id, slot.metadata.type)
-				end
+
+local function attachParachuteBag(ped)
+	lib.requestModel(1269906701)
+	-- Don't re-attach — CreateParachuteBagObject auto-attaches the bag to the ped's back
+	-- using the correct bone/offset. Manual AttachEntityToEntity overrides this and was
+	-- positioning the bag off the player's hip. If the bag desyncs during ragdoll, the
+	-- watchdog tick in showParachuteDeployHint will recreate it.
+	return CreateParachuteBagObject(ped, true, true)
+end
+
+local function showParachuteDeployHint()
+	CreateThread(function()
+		local prompted = false
+		while client.parachute do
+			local ped = cache.ped
+			local pState = GetPedParachuteState(ped)
+			if pState ~= -1 then
+				-- Parachute deployed (or in free-fall with parachute readied) — clear hint and stop loop
+				if prompted then lib.hideTextUI() end
+				return
 			end
-		end)
+			-- Show hint only while genuinely falling, not while standing or in vehicle
+			local falling = IsPedFalling(ped) or IsPedInParachuteFreeFall(ped)
+			if falling and not IsPedInAnyVehicle(ped, false) then
+				if not prompted then
+					lib.showTextUI('[LMB] Deploy Parachute')
+					prompted = true
+				end
+			elseif prompted then
+				lib.hideTextUI()
+				prompted = false
+			end
+			-- Re-attach the bag if it has disappeared (jump/ragdoll desync)
+			local bag = client.parachute and client.parachute[1]
+			if bag and not DoesEntityExist(bag) then
+				client.parachute[1] = attachParachuteBag(ped)
+			end
+			Wait(200)
+		end
+		if prompted then lib.hideTextUI() end
+	end)
+end
+
+local function stowParachute()
+	if not client.parachute then return end
+	-- Don't stow mid-deploy — once GetPedParachuteState != -1 the bag is auto-cleaned
+	-- by the deploy tick and the item is already being consumed.
+	if GetPedParachuteState(cache.ped) ~= -1 then return end
+	local bag = client.parachute[1]
+	if bag and DoesEntityExist(bag) then
+		SetEntityAsMissionEntity(bag, false, true)
+		DeleteEntity(bag)
 	end
+	RemoveWeaponFromPed(cache.ped, `GADGET_PARACHUTE`)
+	SetPlayerParachuteTintIndex(PlayerData.id, -1)
+	client.parachute = false
+	-- Hide any lingering deploy hint; the watchdog loop will exit on its next tick.
+	lib.hideTextUI()
+end
+
+Item('parachute', function(data, slot)
+	if client.parachute then
+		-- Already wearing it — using the item again stows the bag back into the inventory.
+		-- Item is consume=0 so nothing was deducted on the original equip; the slot stays
+		-- where it was.
+		stowParachute()
+		return
+	end
+	ox_inventory:useItem(data, function(data)
+		if data then
+			local chute = `GADGET_PARACHUTE`
+			SetPlayerParachuteTintIndex(PlayerData.id, -1)
+			GiveWeaponToPed(cache.ped, chute, 0, true, false)
+			SetPedGadget(cache.ped, chute, true)
+			client.parachute = { attachParachuteBag(cache.ped), slot?.metadata?.type or -1, slot.slot }
+			if slot.metadata.type then
+				SetPlayerParachuteTintIndex(PlayerData.id, slot.metadata.type)
+			end
+			showParachuteDeployHint()
+		end
+	end)
 end)
 
 Item('phone', function(data, slot)

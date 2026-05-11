@@ -65,4 +65,9 @@ setContainerProperties('pizzabox', {
 	whitelist = { 'pizza' }
 })
 
+setContainerProperties('wallet', {
+	slots = 10,
+	maxWeight = 1000,
+	whitelist = { 'money', 'quarter', 'creditcard', 'id_card', 'driver_license' ,'weaponlicense', 'license' , 'photo', 'businesscard', 'bankcard' , 'note', 'receipt', 'lawyerpass', 'gov_badge', 'rental_contract', 'trucking_contract' }
+})
 return containers

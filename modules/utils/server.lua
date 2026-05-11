@@ -25,23 +25,15 @@ if webHook ~= '' then
 	---@param title string
 	---@param message string
 	---@param image string
-	function Utils.DiscordEmbed(title, message, image, color)
-		PerformHttpRequest(webHook, function() end, 'POST', json.encode({
-			username = 'ox_inventory', embeds = {
-				{
-					title = title,
-					color = color,
-					footer = {
-						text = os.date('%c'),
-					},
-					description = message,
-					thumbnail = {
-						url = image,
-						width = 100,
-					}
-				}
-			}
-		}), headers)
+	function Utils.DiscordEmbed(title, message, image, color, playerId)
+		local level = 'info'
+		if color == 65280 or color == 3066993 then level = 'success'
+		elseif color == 16711680 or color == 15158332 then level = 'error'
+		elseif color == 16776960 or color == 16744448 then level = 'warning'
+		end
+		local extra = {}
+		if image and image ~= '' then extra.image = image end
+		exports.atlas_logs:log('Inventory', title or 'ox_inventory', message or '', level, playerId, extra)
 	end
 end
 
