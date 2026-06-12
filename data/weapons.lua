@@ -165,7 +165,7 @@ return {
 
 		['WEAPON_COMBATPISTOL'] = {
 			label = 'Combat Pistol',
-			weight = 785,
+			weight = 800,
 			durability = 0.2,
 			ammoname = 'ammo-9'
 		},
@@ -455,7 +455,7 @@ return {
 
 		['WEAPON_NIGHTSTICK'] = {
 			label = 'Nightstick',
-			weight = 1000,
+			weight = 500,
 			durability = 0.1,
 		},
 
@@ -479,7 +479,7 @@ return {
 
 		['WEAPON_PISTOL'] = {
 			label = 'Pistol',
-			weight = 1130,
+			weight = 1100,
 			durability = 0.1,
 			ammoname = 'ammo-9',
 			description = 'God bless the Second Amendment.'
@@ -661,7 +661,7 @@ return {
 
 		['WEAPON_STUNGUN'] = {
 			label = 'Tazer',
-			weight = 227,
+			weight = 200,
 			durability = 0.1,
 		},
 

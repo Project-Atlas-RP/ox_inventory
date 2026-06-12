@@ -18,8 +18,12 @@ export const onDrop = (source: DragSource, target?: DropTarget) => {
 
   // If dragging from container slot
   if (sourceSlot.metadata?.container !== undefined) {
-    // Prevent storing container in container
-    if (targetInventory.type === InventoryType.CONTAINER)
+    // Prevent storing container in container — also covers the third-window
+    // backpackPreview path which goes to the equipped bag's container.
+    if (
+      targetInventory.type === InventoryType.CONTAINER ||
+      targetInventory.type === InventoryType.BACKPACK_PREVIEW
+    )
       return console.log(`Cannot store container ${sourceSlot.name} inside another container`);
 
     // Prevent dragging of container slot when opened

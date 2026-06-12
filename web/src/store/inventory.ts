@@ -7,7 +7,9 @@ import {
   stackSlotsReducer,
   swapSlotsReducer,
 } from '../reducers';
-import { State } from '../typings';
+import { itemDurability } from '../helpers';
+import { Items } from './items';
+import { BackpackState, Inventory, State } from '../typings';
 
 const initialState: State = {
   leftInventory: {
@@ -28,6 +30,8 @@ const initialState: State = {
   itemAmount: 0,
   shiftPressed: false,
   isBusy: false,
+  equippedBackpack: null,
+  thirdInventory: null,
 };
 
 export const inventorySlice = createSlice({
@@ -62,6 +66,33 @@ export const inventorySlice = createSlice({
 
       container.weight = action.payload;
     },
+    setEquippedBackpack: (state, action: PayloadAction<BackpackState>) => {
+      state.equippedBackpack = action.payload;
+      if (!action.payload) {
+        state.thirdInventory = null;
+      }
+    },
+    setThirdInventory: (state, action: PayloadAction<Inventory | null>) => {
+      const payload = action.payload;
+      if (!payload) {
+        state.thirdInventory = null;
+        return;
+      }
+
+      const curTime = Math.floor(Date.now() / 1000);
+      state.thirdInventory = {
+        ...payload,
+        items: Array.from(Array(payload.slots), (_, index) => {
+          const item = Object.values(payload.items || {}).find((slot) => slot?.slot === index + 1) || {
+            slot: index + 1,
+          };
+          if (!item.name) return item;
+          if (typeof Items[item.name] === 'undefined') return item;
+          item.durability = itemDurability(item.metadata, curTime);
+          return item;
+        }),
+      };
+    },
   },
   extraReducers: (builder) => {
     builder.addMatcher(isPending, (state) => {
@@ -95,10 +126,14 @@ export const {
   stackSlots,
   refreshSlots,
   setContainerWeight,
+  setEquippedBackpack,
+  setThirdInventory,
 } = inventorySlice.actions;
 export const selectLeftInventory = (state: RootState) => state.inventory.leftInventory;
 export const selectRightInventory = (state: RootState) => state.inventory.rightInventory;
 export const selectItemAmount = (state: RootState) => state.inventory.itemAmount;
 export const selectIsBusy = (state: RootState) => state.inventory.isBusy;
+export const selectEquippedBackpack = (state: RootState) => state.inventory.equippedBackpack;
+export const selectThirdInventory = (state: RootState) => state.inventory.thirdInventory;
 
 export default inventorySlice.reducer;

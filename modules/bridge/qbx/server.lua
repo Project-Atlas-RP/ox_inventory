@@ -33,16 +33,71 @@ local function applyDutyFilter(groups, playerData)
     return groups
 end
 
+-- Synthetic, duty-INDEPENDENT groups so the police armoury / medicine cabinet
+-- SHOPS open while off duty, WITHOUT also un-gating the police stashes/evidence
+-- (those keep groups = shared.police, which applyDutyFilter still strips off duty).
+-- The two shops are pointed at these groups in data/shops.lua.
+local SHOP_GROUP_FOR_JOB = {
+    police = 'police_armoury',
+    bcso = 'police_armoury',
+    sasp = 'police_armoury',
+    ambulance = 'medical_cabinet',
+}
+
+-- (Re)compute each synthetic shop group from its contributing job grades. Must
+-- run on an UN-stripped groups copy and BEFORE applyDutyFilter (which removes the
+-- real job group off duty); the shop group is not in DUTY_RESTRICTED_JOBS, so it
+-- survives. Carries the grade so per-item grade gates (e.g. the carbine's
+-- grade = 3) still work against the shop group. Recomputed (not merely added) so
+-- losing/switching the job clears the shop access too.
+local function addShopGroups(groups)
+    if not groups then return groups end
+    local computed = {}
+    for jobName, shopGroup in pairs(SHOP_GROUP_FOR_JOB) do
+        local grade = groups[jobName]
+        if grade ~= nil and (computed[shopGroup] == nil or grade > computed[shopGroup]) then
+            computed[shopGroup] = grade
+        end
+    end
+    for _, shopGroup in pairs(SHOP_GROUP_FOR_JOB) do
+        groups[shopGroup] = computed[shopGroup] -- nil clears it when no job grants it
+    end
+    return groups
+end
+
+-- QBX:GetGroups can be momentarily stale (it returns WITHOUT the active job —
+-- qbx restores PlayerData.job/gang on login, and keeps them across duty toggles,
+-- without firing SetJob). Rebuilding groups from it alone would drop the
+-- synthetic police_armoury / medical_cabinet group, so seed the active job + gang
+-- from PlayerData before addShopGroups runs. Must be called BEFORE applyDutyFilter
+-- (which strips the real job group off duty; the synthetic group survives).
+local function seedActiveGroups(groups, playerData)
+    if not (groups and playerData) then return groups end
+    if playerData.job and playerData.job.name then
+        groups[playerData.job.name] = playerData.job.grade and playerData.job.grade.level or 0
+    end
+    if playerData.gang and playerData.gang.name then
+        groups[playerData.gang.name] = playerData.gang.grade and playerData.gang.grade.level or 0
+    end
+    return groups
+end
+
 AddEventHandler('qbx_core:server:onGroupUpdate', function(source, groupName, groupGrade)
     local inventory = Inventory(source)
     if not inventory then return end
-    inventory.player.groups[groupName] = not groupGrade and nil or groupGrade
-    -- Re-apply the duty filter so a freshly-added LEO job doesn't bypass the
-    -- on-duty requirement just because it was attached after login.
     local player = QBX:GetPlayer(source)
-    if player then
-        applyDutyFilter(inventory.player.groups, player.PlayerData)
+    if not player then
+        inventory.player.groups[groupName] = not groupGrade and nil or groupGrade
+        return
     end
+    -- Rebuild from a fresh (un-stripped) copy, apply this specific change, then
+    -- recompute shop groups + duty filter — so the synthetic groups are correct on
+    -- job removal/grade change, not just on a freshly-added LEO job.
+    inventory.player.groups = QBX:GetGroups(source) or {}
+    seedActiveGroups(inventory.player.groups, player.PlayerData)
+    inventory.player.groups[groupName] = not groupGrade and nil or groupGrade
+    addShopGroups(inventory.player.groups)
+    applyDutyFilter(inventory.player.groups, player.PlayerData)
 end)
 
 -- When duty status flips, refresh the inventory's groups so the shop check
@@ -52,8 +107,11 @@ AddEventHandler('QBCore:Server:SetDuty', function(source, onduty)
     if not inventory then return end
     local player = QBX:GetPlayer(source)
     if not player then return end
-    -- Rebuild groups from scratch (fresh copy from QBX), then filter.
-    inventory.player.groups = QBX:GetGroups(source)
+    -- Rebuild groups from scratch (fresh copy from QBX), seed the active job (the
+    -- copy can lack it), then filter.
+    inventory.player.groups = QBX:GetGroups(source) or {}
+    seedActiveGroups(inventory.player.groups, player.PlayerData)
+    addShopGroups(inventory.player.groups)
     applyDutyFilter(inventory.player.groups, player.PlayerData)
 end)
 
@@ -89,9 +147,13 @@ end
 
 ---@diagnostic disable-next-line: duplicate-set-field
 function server.setPlayerData(player)
-    local groups = QBX:GetGroups(player.source)
-    -- player here is the flattened PlayerData passed by setupPlayer above.
-    -- It carries .job (active job) which applyDutyFilter needs.
+    -- player here is the flattened PlayerData passed by setupPlayer above; it
+    -- carries .job (active job) which applyDutyFilter needs. GetGroups can be
+    -- stale on login (qbx restores the job without SetJob), so seed the active
+    -- job/gang first — see seedActiveGroups.
+    local groups = QBX:GetGroups(player.source) or {}
+    seedActiveGroups(groups, player)
+    addShopGroups(groups)
     applyDutyFilter(groups, player)
     return {
         source = player.source,
@@ -163,13 +225,7 @@ function server.hasLicense(inv, license)
         { player.PlayerData.citizenid, licenseName, aliasName or licenseName, 'active' }
     )
 
-    -- Fallback 3: legacy mdt_licenses table (DOJ panel sync) has approved row.
-    local hasApprovedLegacy = MySQL.scalar.await(
-        'SELECT 1 FROM mdt_licenses WHERE citizenid = ? AND (type = ? OR type = ?) AND status = ? LIMIT 1',
-        { player.PlayerData.citizenid, licenseName, aliasName or licenseName, 'approved' }
-    )
-
-    if hasActiveFromMdt or hasApprovedLegacy then
+    if hasActiveFromMdt then
         licences[licenseName] = true
         licenses[licenseName] = true
         if aliasName then

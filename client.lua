@@ -34,6 +34,36 @@ local plyState = LocalPlayer.state
 local IsPedCuffed = IsPedCuffed
 local playerPed = cache.ped
 
+-- atlas_backpacks integration: state shared between closeInventory and the NUI
+-- bridge section near the bottom of this file. Declared here so closeInventory
+-- can reset them (Lua locals are visible only from the point of declaration on).
+local backpackState = nil
+local lastNonBackpackOpen = { inv = nil, data = nil, valid = false }
+local thirdPanelOpen = false
+local thirdPanelSlot = nil
+-- Set by onInventoryOpened whenever the right panel just became a backpack
+-- container (detected by item name, not equip state). The swap button uses
+-- this as the single source of truth for "are we on the bag right now?".
+local backpackOnRight = false
+-- Forward declaration so the bag USE path (which lives earlier in this file
+-- than the atlas_backpacks bridge section) can invoke it. The real assignment
+-- happens further down where the rest of the bridge code lives.
+local pushThirdPanelPreview
+-- Hardcoded list mirroring atlas_backpacks/config.lua's Config.Tiers. Used by
+-- useSlot above (so USE on a bag only equips, doesn't open the container) and
+-- by the bridge section below (to detect backpack opens by item name).
+-- Tote tiers are included so double-click / USE routes them through the
+-- dedicated third window too; without the entry, useSlot falls through to
+-- client.openInventory('container', ...) and the bag opens in the right
+-- (drop) panel instead.
+local BACKPACK_ITEM_NAMES = {
+	backpack_tote = true,
+	backpack_tote_b = true,
+	backpack_small = true,
+	backpack_medium = true,
+	backpack_large = true,
+}
+
 lib.onCache('ped', function(ped)
 	playerPed = ped
 	Utils.WeaponWheel()
@@ -99,7 +129,12 @@ local function canOpenInventory()
     if PlayerData.cuffed or IsPedCuffed(playerPed) then
         return shared.info('cannot open inventory', '(cuffed)')
     end
-    
+
+    -- No rummaging through pockets while laying in a hospital bed
+    if LocalPlayer.state.isInHospitalBed then
+        return shared.info('cannot open inventory', '(in hospital bed)')
+    end
+
     -- Check if atlas_appearance customization is open
     local appearanceOpen = exports['atlas_appearance']:isCustomizationOpen()
     if appearanceOpen then
@@ -338,7 +373,16 @@ function client.openInventory(inv, data)
         }
     })
 
-    if inv and not currentInventory.coords and inv ~= 'container' then
+    -- atlas_backpacks: fire after the inventory is visible. inv and data are
+    -- both forwarded so the bridge can remember the "non-backpack" right-side
+    -- args; the swap header button uses them to restore the original right
+    -- (drop / stash / etc.) when the player toggles back off the bag.
+    TriggerEvent('atlas_backpacks:onInventoryOpened', inv, data)
+
+    -- Glovebox travels with the vehicle, so anchoring the distance check to
+    -- the player's coords at open-time would close it as soon as you drive.
+    -- Trunks still get the check (you walk away from a parked trunk).
+    if inv and not currentInventory.coords and inv ~= 'container' and inv ~= 'glovebox' then
         currentInventory.coords = GetEntityCoords(playerPed)
     end
 
@@ -555,6 +599,29 @@ local function useSlot(slot, noAnim)
 		data.slot = slot
 
 		if item.metadata.container then
+			-- atlas_backpacks: for backpack items, "use" only equips the bag —
+			-- the container is reached via the bag-icon header button (third
+			-- window). Without this guard, double-clicking USE opens the bag
+			-- on the first click and then ox_inventory's "same container open
+			-- → close inventory" path fires on the second, which makes the
+			-- third window flash open/closed.
+			if BACKPACK_ITEM_NAMES[item.name] then
+				-- USE toggles the third window. If it's already open, close it
+				-- (the bag stays equipped — only the panel hides). If it's
+				-- closed, equip the bag and open the panel. The bag prop on
+				-- the back only appears once the equip succeeds, so just
+				-- having the item in inventory shows nothing.
+				if thirdPanelOpen then
+					thirdPanelOpen = false
+					thirdPanelSlot = nil
+					SendNUIMessage({ action = 'setThirdInventory', data = nil })
+				else
+					TriggerEvent('atlas_backpacks:nui:equip', { slot = item.slot })
+					thirdPanelSlot = item.slot
+					thirdPanelOpen = pushThirdPanelPreview() or thirdPanelOpen
+				end
+				return
+			end
 			return client.openInventory('container', item.slot)
 		elseif data.client then
 			if invOpen and data.close then client.closeInventory() end
@@ -1010,6 +1077,13 @@ function client.closeInventory()
 		Utils.blurOut()
 		closeTrunk()
 		SendNUIMessage({ action = 'closeInventory' })
+		-- Intentionally NOT clearing the third panel here. Using a backpack
+		-- that's already on the right calls openInventory('container', slot)
+		-- which falls through ox_inventory's "same container = close" branch,
+		-- so a single (or double-click) use was tearing down the third panel
+		-- as a side effect. Letting the third panel persist across the close
+		-- means re-opening the inventory restores it. Unequip / backpack
+		-- removal still clears it via setEquippedBackpack(nil) in React.
 		SetInterval(client.interval, 200)
 		Wait(200)
 
@@ -1020,6 +1094,13 @@ function client.closeInventory()
 		currentInventory = defaultInventory
 		plyState.invOpen = false
 		defaultInventory.coords = nil
+
+		-- atlas_backpacks: reset swap state for the next open. thirdPanelOpen
+		-- and thirdPanelSlot persist so the panel survives close/reopen.
+		backpackOnRight = false
+		lastNonBackpackOpen.valid = false
+		lastNonBackpackOpen.inv = nil
+		lastNonBackpackOpen.data = nil
 	end
 end
 
@@ -1781,6 +1862,9 @@ end)
 
 RegisterNUICallback('uiLoaded', function(_, cb)
 	client.uiLoaded = true
+	-- atlas_backpacks: notify the bridge so it can re-push any equip state that
+	-- may have been broadcast before the React app was ready to receive it.
+	TriggerEvent('atlas_backpacks:onUiLoaded')
 	cb(1)
 end)
 
@@ -1992,6 +2076,14 @@ RegisterNUICallback('swapItems', function(data, cb)
     local isDropping = data.toType == 'newdrop' or (data.toType == 'drop' and data.fromType == 'player')
     local isPickingUp = data.fromType == 'drop' and data.toType == 'player'
 
+    -- atlas_backpacks: play a reach-over-shoulder animation when moving items
+    -- to/from the third (bag) window. Fires alongside the swap so it doesn't
+    -- block; if anim load fails it's a silent no-op.
+    if (data.fromType == 'backpackPreview' or data.toType == 'backpackPreview')
+        and not cache.vehicle and not IsPedFalling(playerPed) then
+        Utils.PlayAnim(0, 'mp_common', 'givetake1_a', 8.0, 1.0, 1000, 49, 0.0, 0, 0, 0)
+    end
+
 	if data.toType == 'newdrop' then
 		if cache.vehicle or IsPedFalling(playerPed) then
 			swapActive = false
@@ -2141,4 +2233,209 @@ RegisterNUICallback('isOnDutyLeo', function(_, cb)
 	local isLeo = client.hasGroup(shared.police)
 	local qbPlayer = isLeo and exports.qbx_core:GetPlayerData()
 	cb(isLeo and qbPlayer and qbPlayer.job and qbPlayer.job.onduty or false)
+end)
+
+-- ===== atlas_backpacks NUI bridge =====
+-- The inventory UI is hosted by this resource, so backpack-related NUI traffic
+-- has to be relayed across to atlas_backpacks (which owns the equip/visual logic).
+RegisterNUICallback('equipBackpack', function(data, cb)
+	TriggerEvent('atlas_backpacks:nui:equip', data)
+	cb(1)
+end)
+
+RegisterNUICallback('unequipBackpack', function(_, cb)
+	TriggerEvent('atlas_backpacks:nui:unequip')
+	cb(1)
+end)
+
+RegisterNUICallback('openBackpack', function(_, cb)
+	TriggerEvent('atlas_backpacks:nui:open')
+	cb(1)
+end)
+
+-- `BACKPACK_ITEM_NAMES` is declared near the top of this file because useSlot
+-- references it as well. Used here to detect backpack container opens by item
+-- name (independent of atlas_backpacks's equip-state broadcast timing).
+local function isBackpackContainerOpen(invType, invData)
+	if invType ~= 'container' then return false end
+	if backpackState and currentInventory and currentInventory.id == backpackState.containerId then
+		return true
+	end
+	-- Equip state may not be set yet (USE-to-equip path triggers the equip
+	-- callback and the container open in rapid succession, the equip callback
+	-- yields to the server). Fall back to checking the slot item name.
+	local slotId = tonumber(invData)
+	if slotId and PlayerData and PlayerData.inventory then
+		local item = PlayerData.inventory[slotId]
+		if item and item.name and BACKPACK_ITEM_NAMES[item.name] then
+			return true
+		end
+	end
+	return false
+end
+
+-- atlas_backpacks: snapshot the right-panel open args, skipping bag opens so
+-- the swap button can replay the original view. State (`backpackState`,
+-- `lastNonBackpackOpen`, `thirdPanelOpen`, `backpackOnRight`) is declared near
+-- the top of this file because closeInventory also resets it.
+AddEventHandler('atlas_backpacks:onInventoryOpened', function(invType, invData)
+	if isBackpackContainerOpen(invType, invData) then
+		backpackOnRight = true
+	else
+		backpackOnRight = false
+		lastNonBackpackOpen.inv = invType
+		lastNonBackpackOpen.data = invData
+		lastNonBackpackOpen.valid = true
+	end
+
+	-- Restore the third panel after a close/reopen cycle. closeInventory keeps
+	-- the open flag set; on reopen we push a fresh snapshot so the contents
+	-- are up to date. Tear down if the bag has been dropped or unequipped
+	-- while the inventory was closed.
+	if thirdPanelOpen and thirdPanelSlot then
+		pushThirdPanelPreview(true)
+	end
+end)
+
+-- `thirdPanelSlot` is the slot of the bag the third panel mirrors. Declared at
+-- the top of the file (alongside the other atlas_backpacks state) so
+-- closeInventory can reset it.
+
+-- Background poller refreshes the third-panel preview while it's visible.
+--   tearDownOnNil = true  → close the panel if the server returns nil
+--                            (used when the user explicitly opens the panel —
+--                            opening should fail visibly if the bag isn't
+--                            reachable).
+--   tearDownOnNil = false → keep the panel open with stale data when the
+--                            server returns nil mid-equip. During the USE
+--                            flow there's a brief window where the container
+--                            is being (re)created server-side and getPreview
+--                            momentarily returns nil; tearing down here was
+--                            the "third window opens then closes" bug.
+-- Assign to the forward-declared local (top of file) so the bag USE flow
+-- earlier in this file can call it. `pushThirdPanelPreview = function(...)`
+-- writes to the existing local rather than `function pushThirdPanelPreview`
+-- which would create a global.
+pushThirdPanelPreview = function(tearDownOnNil)
+	-- pcall so a missing callback (atlas_backpacks not restarted after edits,
+	-- or stopped entirely) doesn't spam a Lua error every refresh tick.
+	local ok, preview = pcall(lib.callback.await, 'atlas_backpacks:getPreview', false, thirdPanelSlot)
+	if not ok then
+		print(('[ox_inventory] atlas_backpacks:getPreview unavailable (restart atlas_backpacks?): %s')
+			:format(tostring(preview)))
+		thirdPanelOpen = false
+		thirdPanelSlot = nil
+		SendNUIMessage({ action = 'setThirdInventory', data = nil })
+		lib.notify({
+			type = 'error',
+			description = 'Backpack preview unavailable — restart atlas_backpacks.',
+		})
+		return false
+	end
+	if not preview then
+		if tearDownOnNil then
+			thirdPanelOpen = false
+			thirdPanelSlot = nil
+			SendNUIMessage({ action = 'setThirdInventory', data = nil })
+		end
+		return false
+	end
+	SendNUIMessage({ action = 'setThirdInventory', data = preview })
+	return true
+end
+
+CreateThread(function()
+	while true do
+		if thirdPanelOpen and invOpen then
+			pushThirdPanelPreview(false)
+			Wait(1500)
+		else
+			Wait(500)
+		end
+	end
+end)
+
+-- Header button: toggle the right panel between the backpack and whatever was
+-- there before. `backpackOnRight` is the single source of truth here — it's
+-- set by onInventoryOpened based on the slot's item name, so it stays accurate
+-- even when atlas_backpacks's equip state hasn't propagated yet.
+RegisterNUICallback('swapBackpackPanel', function(data, cb)
+	cb(1)
+
+	local slot = data and tonumber(data.slot)
+	if not slot then return end
+
+	if backpackOnRight then
+		-- Currently showing the bag — restore the original right panel only
+		-- if there's a real one to restore. `inv == 'player'` and `inv == nil`
+		-- both mean the inventory was opened standalone with no right-side
+		-- target. Calling `openInventory('player')` while already open routes
+		-- through client.openInventory's already-open branch, which calls
+		-- closeInventory and tears the whole UI down — that's the "swap twice
+		-- closes the inventory" bug. Notify and stay on the bag instead.
+		local prevInv = lastNonBackpackOpen.inv
+		local canRestore = lastNonBackpackOpen.valid
+			and prevInv
+			and prevInv ~= 'player'
+
+		if canRestore then
+			client.openInventory(prevInv, lastNonBackpackOpen.data)
+		else
+			lib.notify({
+				type = 'inform',
+				description = 'Nothing to swap back to. Close the inventory to dismiss the bag.',
+			})
+		end
+	else
+		-- Open the bag into the right panel. The USE path that fires
+		-- atlas_backpacks:nui:equip is what auto-equips an unworn bag — here we
+		-- just open the container.
+		client.openInventory('container', slot)
+	end
+end)
+
+RegisterNUICallback('openBackpackThirdPanel', function(data, cb)
+	cb(1)
+	thirdPanelSlot = data and tonumber(data.slot) or (backpackState and backpackState.slot) or nil
+	if not thirdPanelSlot then return end
+	-- Initial open: tear down if the bag isn't reachable so the click doesn't
+	-- silently no-op.
+	thirdPanelOpen = pushThirdPanelPreview(true)
+end)
+
+RegisterNUICallback('closeBackpackThirdPanel', function(_, cb)
+	cb(1)
+	thirdPanelOpen = false
+	thirdPanelSlot = nil
+	SendNUIMessage({ action = 'setThirdInventory', data = nil })
+end)
+
+RegisterNUICallback('refreshBackpackThirdPanel', function(_, cb)
+	cb(1)
+	if not thirdPanelOpen then return end
+	pushThirdPanelPreview(false)
+end)
+
+-- Server fires this immediately after any swap that involved the third
+-- (backpack) window. The container has no openedBy entry for the player so
+-- the normal updateSlots fan-out misses it; this event nudges the client to
+-- re-fetch a fresh snapshot so the React state stays in sync with the server.
+RegisterNetEvent('atlas_backpacks:refreshThirdPanel', function()
+	if not thirdPanelOpen then return end
+	pushThirdPanelPreview(false)
+end)
+
+AddEventHandler('atlas_backpacks:relayNui', function(payload)
+	if type(payload) ~= 'table' or not payload.action then return end
+
+	if payload.action == 'setBackpackSlot' then
+		backpackState = payload.data
+		-- Backpack removed mid-session → tear the third panel down.
+		if not backpackState and thirdPanelOpen then
+			thirdPanelOpen = false
+			SendNUIMessage({ action = 'setThirdInventory', data = nil })
+		end
+	end
+
+	SendNUIMessage(payload)
 end)

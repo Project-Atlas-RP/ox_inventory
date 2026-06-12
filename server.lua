@@ -657,9 +657,7 @@ lib.addCommand({ 'additem', 'giveitem' }, {
 
         source = Inventory(source) or { label = 'console', owner = 'console' }
 
-		if server.loglevel > 0 then
-			lib.logger(source.owner, 'admin', ('"%s" gave %sx %s to "%s"'):format(source.label, count, item.name, inventory.label))
-		end
+		-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 		pcall(function()
 			local adminId = type(source) == 'table' and source.id or nil
 			exports.atlas_logs:log('Inventory', 'Admin Item Given', (source.label or 'console') .. ' gave ' .. count .. 'x ' .. (item.label or item.name) .. ' to ' .. inventory.label, 'warning', adminId, {
@@ -696,9 +694,7 @@ lib.addCommand('removeitem', {
 
         source = Inventory(source) or { label = 'console', owner = 'console' }
 
-		if server.loglevel > 0 then
-			lib.logger(source.owner, 'admin', ('"%s" removed %sx %s from "%s"'):format(source.label, count, item.name, inventory.label))
-		end
+		-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 		pcall(function()
 			local adminId = type(source) == 'table' and source.id or nil
 			exports.atlas_logs:log('Inventory', 'Admin Item Removed', (source.label or 'console') .. ' removed ' .. count .. 'x ' .. (item.label or item.name) .. ' from ' .. inventory.label, 'warning', adminId, {
@@ -735,9 +731,7 @@ lib.addCommand('setitem', {
 
         source = Inventory(source) or { label = 'console', owner = 'console' }
 
-		if server.loglevel > 0 then
-			lib.logger(source.owner, 'admin', ('"%s" set "%s" %s count to %sx'):format(source.label, inventory.label, item.name, count))
-		end
+		-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 		pcall(function()
 			local adminId = type(source) == 'table' and source.id or nil
 			exports.atlas_logs:log('Inventory', 'Admin Item Set', (source.label or 'console') .. ' set ' .. inventory.label .. ' ' .. (item.label or item.name) .. ' count to ' .. count, 'warning', adminId, {
@@ -878,20 +872,15 @@ lib.addCommand('viewinv', {
     Inventory.InspectInventory(source, tonumber(args.invId) or args.invId)
 end)
 
--- Dynamic Alcohol system integration
-exports('alcohol', function(event, item, inventory, slot, data)
+-- Alcohol items route through atlas_consumables, which manages the interactive
+-- multi-sip session, charge metadata, and drunk effect stacking. We return false
+-- so ox_inventory does NOT auto-consume the item — atlas_consumables owns removal.
+exports('alcohol', function(event, item, inventory, slot)
     if event == 'usingItem' then
-        -- Get alcohol level from item's client data, default to 1.0 if not specified
-        local alcoholLevel = item.client and item.client.alcoholLevel or 1.0
-        
-        -- Use the existing alcohol callback system
-        local success = lib.callback.await('consumables:client:DrinkAlcohol', inventory.id, alcoholLevel)
-        
-        if success then
-            return true -- Item was consumed successfully
-        else
-            return false -- Consumption was cancelled, don't remove item
+        if GetResourceState('atlas_consumables') == 'started' then
+            exports.atlas_consumables:onUseItem(inventory.id, item.name, slot)
         end
+        return false
     end
 end)
 

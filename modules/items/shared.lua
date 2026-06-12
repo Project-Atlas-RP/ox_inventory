@@ -8,7 +8,11 @@ local ItemList = {}
 local isServer = IsDuplicityVersion()
 
 local function setImagePath(path)
-    if path then
+    -- NB: in Lua an empty string is truthy, so an item defined with
+    -- `client.image = ''` would otherwise become `imagepath/` (a directory, not
+    -- a file) and render blank. Treat '' as "no override" so the NUI falls back
+    -- to `<name>.png` (e.g. the farm vegetables that ship art but set image='').
+    if path and path ~= '' then
         return path:match('^[%w]+://') and path or ('%s/%s'):format(client.imagepath, path)
     end
 end
@@ -106,8 +110,40 @@ for type, data in pairs(lib.load('data.weapons') or {}) do
 	end
 end
 
+-- ============================================================
+-- Food shelf-life: make sure every edible item (anything with a hunger/thirst
+-- status) decays. Foods sold at the 24/7 'Shop' get a 5-day shelf life; every
+-- other edible food gets AT LEAST 10 days — existing longer decays are kept,
+-- shorter/absent ones are raised to 10 days. Done here while `v.client.status`
+-- is still intact (newItem nils `client` on the server).
+-- ============================================================
+local DECAY_GROCERY = 7200   -- 5 days, in minutes (the `degrade` unit)
+local DECAY_DEFAULT = 14400  -- 10 days, in minutes
+
+local groceryItems = {}
+for _, shop in pairs(lib.load('data.shops') or {}) do
+	if shop.name == 'Shop' and type(shop.inventory) == 'table' then
+		for i = 1, #shop.inventory do
+			local entry = shop.inventory[i]
+			if entry and entry.name then groceryItems[entry.name] = true end
+		end
+	end
+end
+
+local function applyFoodDecay(v)
+	local status = v.client and v.client.status
+	if type(status) ~= 'table' or not (status.hunger or status.thirst) then return end
+	if groceryItems[v.name] then
+		v.degrade = DECAY_GROCERY
+	else
+		v.degrade = math.max(tonumber(v.degrade) or 0, DECAY_DEFAULT)
+	end
+	v.decay = true
+end
+
 for k, v in pairs(lib.load('data.items') or {}) do
 	v.name = k
+	applyFoodDecay(v)
 	local success, response = pcall(newItem, v)
 
     if not success then

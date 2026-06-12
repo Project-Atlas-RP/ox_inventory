@@ -269,9 +269,13 @@ function Items.CheckMetadata(metadata, item, name, ostime)
 
 	if item.weapon then
 		if metadata.components then
+			-- Stripping an unrecognised component silently loses attachments on
+			-- inventory load (player sees "my suppressor vanished after restart"
+			-- with no trace) — keep the strip, but make it visible in console.
 			if table.type(metadata.components) == 'array' then
 				for i = #metadata.components, 1, -1 do
 					if not ItemList[metadata.components[i]] then
+						print(('^3[ox_inventory] removed unknown component "%s" from %s (serial %s) on load^0'):format(tostring(metadata.components[i]), name, tostring(metadata.serial)))
 						table.remove(metadata.components, i)
 					end
 				end
@@ -283,6 +287,8 @@ function Items.CheckMetadata(metadata, item, name, ostime)
 					if component and ItemList[component] then
 						size += 1
 						components[size] = component
+					elseif component then
+						print(('^3[ox_inventory] removed unknown component "%s" from %s (serial %s) on load^0'):format(tostring(component), name, tostring(metadata.serial)))
 					end
 				end
 

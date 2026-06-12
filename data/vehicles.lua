@@ -79,26 +79,26 @@ return {
 
 	-- slots, maxWeight; default weight is 8000 per slot
 	glovebox = {
-		[0] = {6, 20000},		-- Compact
-		[1] = {6, 20000},		-- Sedan
-		[2] = {6, 24000},		-- SUV
-		[3] = {6, 20000},		-- Coupe
-		[4] = {6, 22000},		-- Muscle
-		[5] = {6, 20000},		-- Sports Classic
-		[6] = {6, 20000},		-- Sports
-		[7] = {6, 18000},		-- Super
-		[8] = {3, 10000},		-- Motorcycle
-		[9] = {6, 24000},		-- Offroad
-		[10] = {6, 26000},	-- Industrial
-		[11] = {6, 24000},	-- Utility
-		[12] = {6, 26000},	-- Van
-		[14] = {10, 40000},	-- Boat
-		[15] = {10, 40000},	-- Helicopter
-		[16] = {12, 60000},	-- Plane
-		[17] = {6, 22000},	-- Service
-		[18] = {8, 52000},	-- Emergency (6 glovebox + 2 gun rack)
-		[19] = {6, 24000},	-- Military
-		[20] = {6, 26000},	-- Commercial (trucks)
+		[0] = {5, 10000},		-- Compact
+		[1] = {5, 10000},		-- Sedan
+		[2] = {5, 10000},		-- SUV
+		[3] = {5, 10000},		-- Coupe
+		[4] = {5, 10000},		-- Muscle
+		[5] = {5, 10000},		-- Sports Classic
+		[6] = {5, 10000},		-- Sports
+		[7] = {5, 10000},		-- Super
+		[8] = {2, 5000},		-- Motorcycle
+		[9] = {5, 10000},		-- Offroad
+		[10] = {5, 10000},	-- Industrial
+		[11] = {5, 10000},	-- Utility
+		[12] = {5, 10000},	-- Van
+		[14] = {5, 10000},	-- Boat
+		[15] = {5, 10000},	-- Helicopter
+		[16] = {5, 10000},	-- Plane
+		[17] = {5, 10000},	-- Service
+		[18] = {5, 10000},	-- Emergency (6 glovebox + 2 gun rack)
+		[19] = {5, 10000},	-- Military
+		[20] = {5, 10000},	-- Commercial (trucks)
 		models = {
 			-- (no model overrides needed when matching defaults)
 		}

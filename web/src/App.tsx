@@ -3,8 +3,8 @@ import useNuiEvent from './hooks/useNuiEvent';
 import { Items } from './store/items';
 import { Locale } from './store/locale';
 import { setImagePath } from './store/imagepath';
-import { setupInventory } from './store/inventory';
-import { Inventory } from './typings';
+import { setEquippedBackpack, setThirdInventory, setupInventory } from './store/inventory';
+import { BackpackState, Inventory } from './typings';
 import { useAppDispatch } from './store';
 import { debugData } from './utils/debugData';
 import DragPreview from './components/utils/DragPreview';
@@ -102,6 +102,14 @@ const App: React.FC = () => {
 
     setImagePath(imagepath);
     dispatch(setupInventory({ leftInventory }));
+  });
+
+  useNuiEvent<BackpackState>('setBackpackSlot', (data) => {
+    dispatch(setEquippedBackpack(data));
+  });
+
+  useNuiEvent<Inventory | null>('setThirdInventory', (data) => {
+    dispatch(setThirdInventory(data));
   });
 
   fetchNui('uiLoaded', {});

@@ -57,9 +57,9 @@ end
 ---@param shop table The shop configuration
 ---@return string status The status message ('Open', 'Closed - Opens at X', etc.)
 function ShopHours.getShopStatus(shop)
-    print(shop.opens, shop.closes)
+    lib.print.debug(('getShopStatus: %s opens=%s closes=%s'):format(shop.name or 'unknown', tostring(shop.opens), tostring(shop.closes)))
     if not shop.opens or not shop.closes then
-        print("here")
+        lib.print.debug(('Shop %s has no hours configured (always open)'):format(shop.name or 'unknown'))
         return 'Open'
     end
 

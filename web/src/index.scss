@@ -266,8 +266,74 @@ button:active {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
+  align-items: center;
   p {
     font-size: 16px;
+  }
+}
+
+.inventory-grid-header-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.inventory-grid-header-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.backpack-header-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  // Sized to fit inside the header's text line-height — appearing/disappearing
+  // doesn't change the header height. Explicit 4px so it reads as a rounded
+  // square, not a circle.
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  background-color: $secondaryColor;
+  color: $textColor;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+
+  svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+  }
+
+  &:hover {
+    background-color: $secondaryColorHighlight;
+  }
+
+  &.is-active {
+    background-color: $secondaryColorHighlight;
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  &:active {
+    transform: none;
+  }
+}
+
+.third-inventory {
+  display: flex;
+  flex-direction: column;
+}
+
+.inventory-grid-wrapper--readonly {
+  opacity: 0.95;
+
+  .inventory-slot {
+    pointer-events: none;
   }
 }
 
@@ -315,6 +381,19 @@ button:active {
   font-weight: 400;
   font-family: $mainFont;
   font-size: 12px;
+}
+
+// drug quality stars rendered directly on the slot (atlas_drugsales `grade`)
+.item-slot-quality {
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 1px;
+  color: #ffcf3f;
+  text-shadow: 0 0 2px #000, 0 1px 2px #000;
+  padding-bottom: 1px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .inventory-slot-number {

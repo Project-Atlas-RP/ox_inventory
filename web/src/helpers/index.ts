@@ -93,20 +93,27 @@ export const findAvailableSlot = (item: Slot, data: ItemData, items: Slot[]) => 
   return stackableSlot || items.find((target) => target.name === undefined);
 };
 
+const resolveInventoryByType = (state: State, type: Inventory['type'] | undefined): Inventory | undefined => {
+  if (!type) return undefined;
+  if (type === InventoryType.PLAYER) return state.leftInventory;
+  if (type === InventoryType.BACKPACK_PREVIEW) return state.thirdInventory ?? undefined;
+  return state.rightInventory;
+};
+
 export const getTargetInventory = (
   state: State,
   sourceType: Inventory['type'],
   targetType?: Inventory['type']
-): { sourceInventory: Inventory; targetInventory: Inventory } => ({
-  sourceInventory: sourceType === InventoryType.PLAYER ? state.leftInventory : state.rightInventory,
-  targetInventory: targetType
-    ? targetType === InventoryType.PLAYER
-      ? state.leftInventory
-      : state.rightInventory
+): { sourceInventory: Inventory; targetInventory: Inventory } => {
+  const sourceInventory = resolveInventoryByType(state, sourceType) ?? state.rightInventory;
+  // Default target = the "other" panel. Player ↔ right; right ↔ player.
+  const targetInventory = targetType
+    ? resolveInventoryByType(state, targetType) ?? state.rightInventory
     : sourceType === InventoryType.PLAYER
-    ? state.rightInventory
-    : state.leftInventory,
-});
+      ? state.rightInventory
+      : state.leftInventory;
+  return { sourceInventory, targetInventory };
+};
 
 export const itemDurability = (metadata: any, curTime: number) => {
   // sorry dunak

@@ -209,7 +209,11 @@ p, span, div {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-md) !important;
-    transition: all var(--transition-fast) !important;
+    /* Only animate hover/visual properties — NOT background-size. data-inventory-type
+       is added by custom.js after first paint, which flips the shop background-size
+       rule; animating background-size made the product images visibly shrink on open. */
+    transition: background-color var(--transition-fast), border-color var(--transition-fast),
+                box-shadow var(--transition-fast), transform var(--transition-fast) !important;
     overflow: hidden !important;
 }
 
@@ -280,6 +284,12 @@ p, span, div {
     padding: 2px 6px !important;
     border-radius: 4px !important;
     text-align: center !important;
+}
+
+/* Empty weight/count badge renders as a bare black square (e.g. shop items with
+   no stock count, or weightless items). Hide it. */
+.item-slot-info-wrapper p:empty {
+    display: none !important;
 }
 
 /* ========================================
@@ -633,15 +643,18 @@ p, span, div {
     flex-shrink: 0;
 }
 
-/* Shop title styling */
-.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper p:first-of-type {
+/* Shop title styling. Target the DIRECT-child <p> only: the weight readout is a
+   second <p> nested in .inventory-grid-header-right, and :first/last-of-type is
+   evaluated per-parent — so the old p:last-of-type rule below matched BOTH the
+   title and the weight and hid the title. */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper > p {
     font-size: 14px !important;
     font-weight: 600 !important;
     letter-spacing: 0.02em !important;
 }
 
-/* Hide weight display in shops */
-.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-wrapper p:last-of-type {
+/* Hide the weight readout + actions in shops (the right side of the header) */
+.inventory-grid-wrapper[data-inventory-type="shop"] .inventory-grid-header-right {
     display: none !important;
 }
 
@@ -667,7 +680,12 @@ p, span, div {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border) !important;
     border-radius: 10px !important;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    /* Exclude background-size from the transition (see base .inventory-slot note)
+       so the image snaps to its final size instead of animating smaller on open. */
+    transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     position: relative !important;
     overflow: hidden !important;
 }
@@ -707,16 +725,16 @@ p, span, div {
     background-color: rgba(26, 26, 26, 0.4) !important;
 }
 
-/* Hide weight info on shop items (irrelevant) */
+/* Show the item weight badge on shop items (alongside any stock count). */
 .inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper p:first-child {
-    display: none !important;
+    display: block !important;
 }
 
-/* Stock count badge - top right */
+/* Weight + stock count badges - top right */
 .inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper {
     top: 2px !important;
     right: 2px !important;
-    gap: 0 !important;
+    gap: 3px !important;
 }
 
 .inventory-grid-wrapper[data-inventory-type="shop"] .item-slot-info-wrapper p {
@@ -957,3 +975,180 @@ p, span, div {
 .gun-rack-slot.gun-rack-has-item::before {
     display: none !important;
 }
+
+/* ========================================
+   atlas_backpacks: header buttons + third panel
+   ======================================== */
+
+/* Container holding the weight readout + action buttons on the right side of
+   each inventory grid header. */
+.inventory-grid-header-right {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin-left: auto !important;
+}
+
+/* The weight text was previously pushed right by `margin-left: auto`. Now that
+   it lives inside `.inventory-grid-header-right`, drop that override so it
+   sits cleanly next to the buttons. */
+.inventory-grid-header-wrapper .inventory-grid-header-right > p {
+    margin-left: 0 !important;
+}
+
+.inventory-grid-header-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 4px !important;
+}
+
+/* Header action button — matches Atlas card styling (rounded square, subtle
+   border, accent on hover/active). */
+.backpack-header-button {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    /* Sized smaller than the header text's line-height so the header doesn't
+       grow when a backpack appears in the inventory. */
+    width: 18px !important;
+    height: 18px !important;
+    padding: 0 !important;
+    margin: -1px 0 !important; /* let the box-shadow breathe without pushing layout */
+    line-height: 1 !important;
+    border: 1px solid var(--border) !important;
+    /* Explicit 4px so an 18px box reads as a rounded square, not a circle.
+       (--radius-sm at 8px on an 18px box was ~44% and looked circular.) */
+    border-radius: 4px !important;
+    background: var(--bg-tertiary) !important;
+    color: var(--text-secondary) !important;
+    cursor: pointer !important;
+    transition: background var(--transition-fast),
+                color var(--transition-fast),
+                border-color var(--transition-fast) !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+    flex: 0 0 auto !important;
+}
+
+.backpack-header-button svg {
+    width: 12px !important;
+    height: 12px !important;
+    display: block !important;
+}
+
+.backpack-header-button:hover {
+    background: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
+    border-color: rgba(99, 102, 241, 0.45) !important;
+    /* No translate on hover — would push the surrounding text. */
+}
+
+.backpack-header-button.is-active {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.4),
+                0 4px 10px -4px rgba(99, 102, 241, 0.6) !important;
+}
+
+.backpack-header-button.is-active:hover {
+    background: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+}
+
+/* Third panel — the read-only backpack window. Floats as its own card so it
+   doesn't push the main panels or get captured by custom.js's
+   first-of-type/last-of-type panel positioning rules. Inner styling falls
+   through to the regular .inventory-grid-wrapper / .inventory-grid-container
+   rules so it has the same dimensions, padding, and 5-column grid as the
+   player and right panels. */
+.third-inventory {
+    position: fixed !important;
+    /* `top`/`left` are the default position only — NO !important. The drag
+       handler writes to outer.style.left/top directly (without !important),
+       and the injected #inventory-saved-styles rule overrides with the saved
+       position (with !important). If these defaults carried !important they
+       would beat the drag's inline style and the panel would snap back to
+       (40, 80) whenever the injected CSS is removed at drag start. */
+    top: 80px;
+    left: 40px;
+    display: flex !important;
+    flex-direction: column !important;
+    z-index: 50 !important;
+    animation: third-panel-fade 0.18s ease-out !important;
+    pointer-events: auto !important;
+}
+
+/* The third panel keeps the same border/shadow/header as the main panels but
+   uses slightly smaller cells AND auto-sizes its height to the actual slot
+   count. Small bag (15 slots) → 3 rows; medium (25) → 5 rows; large (40) →
+   capped to ~5 visible rows with scroll. */
+.third-inventory .inventory-grid-wrapper {
+    padding: 8px !important;
+}
+
+.third-inventory .inventory-grid-header-wrapper {
+    padding: 8px 12px !important;
+    margin-bottom: 6px !important;
+}
+
+.third-inventory .inventory-grid-header-wrapper p:first-of-type {
+    font-size: 12px !important;
+}
+
+.third-inventory .inventory-grid-header-wrapper p:last-of-type {
+    font-size: 11px !important;
+}
+
+.third-inventory .inventory-grid-container {
+    grid-template-columns: repeat(5, 8vh) !important;
+    grid-auto-rows: 8.2vh !important;
+    gap: 5px !important;
+    padding: 3px !important;
+    height: auto !important;
+    max-height: calc(8.2vh * 5 + 5px * 4) !important;
+}
+
+/* Bundled index.scss sets `.inventory-grid-wrapper--readonly { opacity: 0.95 }`
+   which dimmed the whole third window. Override to full opacity so it matches
+   the player and drop panels. */
+.inventory-grid-wrapper--readonly {
+    opacity: 1 !important;
+}
+
+.inventory-grid-wrapper--readonly .inventory-slot {
+    /* Only suppress interaction; opacity stays at default so the third window
+       doesn't look dimmer than the player / drop windows. */
+    pointer-events: none !important;
+}
+
+@keyframes third-panel-fade {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ========================================
+   Missing-art fallback icon
+   Injected by custom.js into item slots whose image failed to load. Sits
+   centered behind the count/label badges so they stay readable.
+   ======================================== */
+.inventory-slot { position: relative; }
+
+.atlas-item-fallback {
+    position: absolute !important;
+    inset: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+}
+
+.atlas-item-fallback svg {
+    width: 42% !important;
+    height: 42% !important;
+    opacity: 0.30 !important;
+    fill: var(--text-secondary, #b0b3c0) !important;
+}
+

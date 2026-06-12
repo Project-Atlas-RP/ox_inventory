@@ -69,6 +69,46 @@ local function hasDifferentDurability(meta1, meta2)
 	return true
 end
 
+---Stack-compatibility check for two metadata tables. Comparing the raw tables with
+---table.matches included the exact `durability` value — for degrading food that's a
+---future epoch timestamp, so two stacks crafted seconds apart NEVER matched and
+---hasDifferentDurability's truncated-% comparison was unreachable. Here durability is
+---excluded from the structural match and judged solely by hasDifferentDurability.
+---@param meta1? table
+---@param meta2? table
+---@return boolean canStack
+local function canStackMetadata(meta1, meta2)
+	meta1 = meta1 or {}
+	meta2 = meta2 or {}
+
+	if hasDifferentDurability(meta1, meta2) then return false end
+
+	local dur1, dur2 = meta1.durability, meta2.durability
+
+	-- one has durability and the other doesn't — never merge those
+	if (dur1 == nil) ~= (dur2 == nil) then return false end
+
+	if dur1 == nil or dur1 == dur2 then
+		return table.matches(meta1, meta2)
+	end
+
+	local clone1, clone2 = table.clone(meta1), table.clone(meta2)
+	clone1.durability, clone2.durability = nil, nil
+	return table.matches(clone1, clone2)
+end
+
+---When merging two degrading stacks the survivor keeps ONE timestamp; use the earlier
+---expiry so stacking old food onto fresh food (or vice versa) can't extend shelf life.
+---@param targetMetadata? table the surviving slot's metadata (mutated)
+---@param incomingMetadata? table
+local function mergeStackDurability(targetMetadata, incomingMetadata)
+	if not targetMetadata or not incomingMetadata then return end
+	if not targetMetadata.degrade then return end
+	local dur1, dur2 = targetMetadata.durability, incomingMetadata.durability
+	if type(dur1) ~= 'number' or type(dur2) ~= 'number' then return end
+	if dur2 < dur1 then targetMetadata.durability = dur2 end
+end
+
 ---@class OxInventory
 local OxInventory = {}
 OxInventory.__index = OxInventory
@@ -987,11 +1027,31 @@ end
 exports('SwapSlots', Inventory.SwapSlots)
 
 function Inventory.ContainerWeight(container, metaWeight, playerInventory)
+	-- Apply per-container weightFactor (default 1.0). Used by atlas_backpacks to
+	-- transfer only a fraction of the bag's contents into the bag's own slot
+	-- weight, so stash/drop/trunk space can't be exploited by nesting full bags.
+	local factor = Items.containers[container.name]?.weightFactor or 1.0
+	local adjusted = math.floor(metaWeight * factor + 0.5)
+
 	playerInventory.weight -= container.weight
 	container.weight = Items(container.name).weight
-	container.weight += metaWeight
-	container.metadata.weight = metaWeight
+	container.weight += adjusted
+	container.metadata.weight = adjusted
 	playerInventory.weight += container.weight
+end
+
+-- A container's contents propagate onto the player's weight via ContainerWeight
+-- (scaled by the container's weightFactor). Moving an item INTO a container only
+-- validated the container's own max weight, so a bag with free space let the
+-- player blow past their personal weight limit. Returns false when bringing
+-- `containerItem`'s contents to `newContentWeight` would push the player over
+-- their max weight.
+local function containerFitsPlayer(playerInventory, containerItem, newContentWeight)
+	if not (playerInventory and playerInventory.maxWeight and containerItem) then return true end
+	local factor = Items.containers[containerItem.name]?.weightFactor or 1.0
+	local adjusted = math.floor(newContentWeight * factor + 0.5)
+	local newSlotWeight = Items(containerItem.name).weight + adjusted
+	return (playerInventory.weight - containerItem.weight + newSlotWeight) <= playerInventory.maxWeight
 end
 
 ---@param inv inventory
@@ -1205,7 +1265,7 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 		local slotData = inv.items[slot]
 		slotMetadata, slotCount = Items.Metadata(inv.id, item, metadata and table.clone(metadata) or {}, count)
 
-		if not slotData or (item.stack and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata) and not hasDifferentDurability(slotData.metadata or {}, slotMetadata)) then
+		if not slotData or (item.stack and slotData.name == item.name and canStackMetadata(slotData.metadata, slotMetadata)) then
 			toSlot = slot
 		end
 	end
@@ -1217,7 +1277,7 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 		for i = 1, inv.slots do
 			local slotData = items[i]
 
-			if item.stack and slotData ~= nil and slotData.name == item.name and table.matches(slotData.metadata, slotMetadata) and not hasDifferentDurability(slotData.metadata, slotMetadata) then
+			if item.stack and slotData ~= nil and slotData.name == item.name and canStackMetadata(slotData.metadata, slotMetadata) then
 				toSlot = i
 				break
 			elseif not item.stack and not slotData then
@@ -1263,11 +1323,16 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 					duration = 4000
 				})
 				
+				-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 				local invokingResource = server.loglevel > 1 and GetInvokingResource()
-				if invokingResource then
-					lib.logger(inv.owner, 'addItem', ('"%s" dropped %sx %s near "%s" (%s)'):format(invokingResource, count, item.name, inv.label, reason:lower()))
-				end
-				
+				pcall(function()
+					exports.atlas_logs:log('Inventory', 'Item Dropped on Ground',
+						(invokingResource or 'unknown') .. ' tried to add ' .. count .. 'x ' .. (item.label or item.name) .. ' to ' .. inv.label .. ' but it was dropped on the ground (' .. reason:lower() .. ')',
+						'warning', inv.player and inv.id or nil, {
+							items = {{ name = item.name, label = item.label, count = count }}
+						})
+				end)
+
 				return true, 'dropped_on_ground'
 			end
 		end
@@ -1280,6 +1345,10 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 	local toSlotType = type(toSlot)
 
 	if toSlotType == 'number' then
+		local existingSlot = inv.items[toSlot]
+		if existingSlot and existingSlot.metadata then
+			mergeStackDurability(existingSlot.metadata, slotMetadata)
+		end
 		Inventory.SetSlot(inv, item, slotCount, slotMetadata, toSlot)
 
 		if inv.player and server.syncInventory then
@@ -1293,10 +1362,8 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 			}
 		}, true)
 
-		if invokingResource then
-			lib.logger(inv.owner, 'addItem', ('"%s" added %sx %s to "%s"'):format(invokingResource, count, item.name, inv.label))
-		end
-
+		-- Atlas patch: lib.logger removed (replaced by atlas_logs below). Re-drop
+		-- the lib.logger line on every subtree pull.
 		pcall(function()
 			exports.atlas_logs:log('Inventory', 'Item Added', (invokingResource or 'unknown') .. ' added ' .. count .. 'x ' .. (item.label or item.name) .. ' to ' .. inv.label, 'info', inv.player and inv.id or nil, {
 				items = {{ name = item.name, label = item.label, count = count, metadata = slotMetadata or nil }}
@@ -1321,10 +1388,7 @@ function Inventory.AddItem(inv, item, count, metadata, slot, cb, preventDrop, ig
 
 		inv:syncSlotsWithClients(toSlot, true)
 
-		if invokingResource then
-			lib.logger(inv.owner, 'addItem', ('"%s" added %sx %s to "%s"'):format(invokingResource, added, item.name, inv.label))
-		end
-
+		-- Atlas patch: lib.logger removed (replaced by atlas_logs below).
 		pcall(function()
 			exports.atlas_logs:log('Inventory', 'Item Added', (invokingResource or 'unknown') .. ' added ' .. added .. 'x ' .. (item.label or item.name) .. ' to ' .. inv.label, 'info', inv.player and inv.id or nil, {
 				items = {{ name = item.name, label = item.label, count = added, metadata = metadata or nil }}
@@ -1507,7 +1571,7 @@ function Inventory.RemoveItem(inv, item, count, metadata, slot, ignoreTotal, str
 		removed = count
 		local ok, result = Inventory.SetSlot(inv, item, -count, inv.items[slot].metadata, slot)
 
-		if not ok then
+		if ok == false then
 		    error(('Failed to remove %sx %s from inventory-%s:slot-%s (%s).'):format(count, item.name, inv.id, slot, result))
 		end
 
@@ -1523,9 +1587,9 @@ function Inventory.RemoveItem(inv, item, count, metadata, slot, ignoreTotal, str
 					inv.items[k] = nil
 					slots[#slots+1] = inv.items[k] or k
 				elseif v > count then
-					local ok, result = Inventory.SetSlot(inv, item, count, inv.items[k].metadata, k)
+					local ok, result = Inventory.SetSlot(inv, item, -count, inv.items[k].metadata, k)
 
-					if not ok then
+					if ok == false then
 					    error(('Failed to remove %sx %s from inventory-%s:slot-%s (%s).'):format(count, item.name, inv.id, k, result))
 					end
 
@@ -1562,10 +1626,7 @@ function Inventory.RemoveItem(inv, item, count, metadata, slot, ignoreTotal, str
 
 		local invokingResource = server.loglevel > 1 and GetInvokingResource()
 
-		if invokingResource then
-			lib.logger(inv.owner, 'removeItem', ('"%s" removed %sx %s from "%s"'):format(invokingResource, removed, item.name, inv.label))
-		end
-
+		-- Atlas patch: lib.logger removed (replaced by atlas_logs below).
 		pcall(function()
 			exports.atlas_logs:log('Inventory', 'Item Removed', (invokingResource or 'unknown') .. ' removed ' .. removed .. 'x ' .. (item.label or item.name) .. ' from ' .. inv.label, 'info', inv.player and inv.id or nil, {
 				items = {{ name = item.name, label = item.label, count = removed, metadata = metadata or nil }}
@@ -1748,6 +1809,11 @@ local TriggerEventHooks = require 'modules.hooks.server'
 ---@param data SwapSlotData
 local function dropItem(source, playerInventory, fromData, data)
     if not fromData then return end
+    -- This function expects the source to be the actual player inventory; the
+    -- weight bookkeeping below + the syncInventory call at the end use that
+    -- assumption. Refuse if a caller passes a non-player container so we
+    -- don't crash the qbx bridge's syncInventory.
+    if not playerInventory.player then return false end
 
 	local toData = table.clone(fromData)
 	toData.slot = data.toSlot
@@ -1800,15 +1866,15 @@ local function dropItem(source, playerInventory, fromData, data)
 
 	TriggerClientEvent('ox_inventory:createDrop', -1, dropId, Inventory.Drops[dropId], playerInventory.open and source, slot)
 
-	if server.loglevel > 0 then
-		lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, toData.name, playerInventory.label, dropId))
-	end
-
+	-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 	pcall(function()
 		local itemObj = Items(toData.name)
-		exports.atlas_logs:log('Inventory', 'Item Dropped', playerInventory.label .. ' dropped ' .. data.count .. 'x ' .. (itemObj and itemObj.label or toData.name), 'info', source, {
-			items = {{ name = toData.name, label = itemObj and itemObj.label or toData.name, count = data.count, metadata = toData.metadata or nil }}
-		})
+		exports.atlas_logs:log('Inventory', 'Item Dropped',
+			playerInventory.label .. ' dropped ' .. data.count .. 'x ' .. (itemObj and itemObj.label or toData.name) .. ' to drop ' .. dropId,
+			'info', source, {
+				items = {{ name = toData.name, label = itemObj and itemObj.label or toData.name, count = data.count, metadata = toData.metadata or nil }},
+				dropId = dropId,
+			})
 	end)
 
 	if server.syncInventory then server.syncInventory(playerInventory) end
@@ -1824,12 +1890,107 @@ local function dropItem(source, playerInventory, fromData, data)
 	}
 end
 
+---atlas_backpacks: drop a slot directly from the equipped backpack container.
+---Mirrors `dropItem` but the source inventory is the bag rather than the
+---player. Updates the bag's container weight + the bag item's weight in the
+---player inventory so the player's reported weight stays consistent.
+---@param source number
+---@param playerInventory OxInventory
+---@param bagInventory OxInventory
+---@param fromData table
+---@param data SwapSlotData
+local function dropItemFromBag(source, playerInventory, bagInventory, fromData, data)
+    if not fromData then return end
+
+    local toData = table.clone(fromData)
+    toData.slot = data.toSlot
+    toData.count = data.count
+    toData.weight = Inventory.SlotWeight(Items(toData.name), toData)
+
+    if toData.weight > shared.dropweight then return end
+
+    local dropId = generateInvId('drop')
+
+    local hooks <close> = TriggerEventHooks('swapItems', {
+        source = source,
+        fromInventory = bagInventory.id,
+        fromSlot = fromData,
+        fromType = 'container',
+        toInventory = 'newdrop',
+        toSlot = data.toSlot,
+        toType = 'drop',
+        count = data.count,
+        action = 'move',
+        dropId = dropId,
+    })
+
+    if not hooks.success then return end
+
+    fromData.count -= data.count
+    fromData.weight = Inventory.SlotWeight(Items(fromData.name), fromData)
+
+    if fromData.count < 1 then
+        fromData = nil
+    else
+        toData.metadata = table.clone(toData.metadata)
+    end
+
+    -- Update the bag container's slot + weight.
+    bagInventory.weight -= toData.weight
+    bagInventory.items[data.fromSlot] = fromData
+    bagInventory.changed = true
+
+    -- Push the new container weight into the bag item on the player's
+    -- inventory so player.weight stays correct (and the bag's displayed
+    -- "X.Xkg" line updates after the drop).
+    local equipped = exports.atlas_backpacks and exports.atlas_backpacks:GetEquipped(source)
+    if equipped and equipped.slot and playerInventory.items[equipped.slot] then
+        Inventory.ContainerWeight(playerInventory.items[equipped.slot], bagInventory.weight, playerInventory)
+    end
+
+    local inventory = Inventory.Create(dropId, ('Drop %s'):format(dropId:gsub('%D', '')), 'drop', shared.dropslots, toData.weight, shared.dropweight, false, {[data.toSlot] = toData})
+    if not inventory then return end
+
+    inventory.coords = data.coords
+    Inventory.Drops[dropId] = {coords = inventory.coords, instance = data.instance, model = getDropModelForWeight(toData.weight)}
+
+    TriggerClientEvent('ox_inventory:createDrop', -1, dropId, Inventory.Drops[dropId], playerInventory.open and source, nil)
+
+    -- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
+    pcall(function()
+        local itemObj = Items(toData.name)
+        exports.atlas_logs:log('Inventory', 'Item Dropped',
+            (playerInventory.label or tostring(source)) .. ' dropped ' .. data.count .. 'x ' .. (itemObj and itemObj.label or toData.name) .. ' from backpack to drop ' .. dropId,
+            'info', source, {
+                items = {{ name = toData.name, label = itemObj and itemObj.label or toData.name, count = data.count, metadata = toData.metadata or nil }},
+                source = 'backpack',
+                dropId = dropId,
+            })
+    end)
+
+    if server.syncInventory then server.syncInventory(playerInventory) end
+    TriggerClientEvent('atlas_backpacks:refreshThirdPanel', source)
+
+    return true, {
+        weight = playerInventory.weight,
+        items = {
+            { item = playerInventory.items[equipped and equipped.slot or 0] or nil, inventory = playerInventory.id }
+        }
+    }
+end
+
 local GetLocks = require 'modules.locks'
 
 ---@param source number
 ---@param data SwapSlotData
 lib.callback.register('ox_inventory:swapItems', function(source, data)
-	if data.fromType ~= data.toType and data.toType ~= 'player' and data.fromType ~= 'player' then
+	-- atlas_backpacks: `backpackPreview` resolves server-side to the player's
+	-- own equipped bag container, so swapping between drop/stash/etc. and the
+	-- third window is a legitimate "into my own pocket" move — treat it as
+	-- player-side for the invalid-data check so it doesn't fire LogExploit.
+	if data.fromType ~= data.toType
+		and data.toType ~= 'player' and data.fromType ~= 'player'
+		and data.toType ~= 'backpackPreview' and data.fromType ~= 'backpackPreview' then
         Utils.LogExploit(source, 'swapItems', 'Triggered event with invalid data', true)
         return
     end
@@ -1838,14 +1999,49 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 
 	local playerInventory = Inventory(source)
 
-	if not playerInventory or not playerInventory.open then return end
+	if not playerInventory then return end
 
-	local toInventory = (data.toType == 'player' and playerInventory) or Inventory(playerInventory.open)
-	local fromInventory = (data.fromType == 'player' and playerInventory) or Inventory(playerInventory.open)
+	-- atlas_backpacks third-window support: `backpackPreview` routes the move
+	-- to the player's equipped bag container, regardless of what's currently
+	-- in `playerInventory.open`. Lets drag/drop work between the player and
+	-- the third panel even while a drop / stash sits in the right panel.
+	local function resolveSwapInventory(invType)
+		if invType == 'player' then return playerInventory end
+		if invType == 'backpackPreview' then
+			local equipped = exports.atlas_backpacks and exports.atlas_backpacks:GetEquipped(source)
+			if not equipped or not equipped.containerId then return nil end
+			local container = Inventory(equipped.containerId)
+			if not container then
+				-- Lazy-create from the bag slot if the container hasn't been
+				-- loaded yet (e.g. first move after a resource restart, no
+				-- prior preview fetch happened).
+				container = Inventory.GetContainerFromSlot(source, equipped.slot)
+			end
+			return container
+		end
+		return Inventory(playerInventory.open)
+	end
+
+	-- For non-backpackPreview swaps we still need an open right inventory.
+	if data.toType ~= 'backpackPreview' and data.fromType ~= 'backpackPreview' and not playerInventory.open then return end
+
+	local toInventory = resolveSwapInventory(data.toType)
+	local fromInventory = resolveSwapInventory(data.fromType)
 
 	if not fromInventory or not toInventory then
-		playerInventory:closeInventory()
+		if playerInventory.open then playerInventory:closeInventory() end
 		return
+	end
+
+	-- Reject backpack-into-backpack via the backpackPreview path. The normal
+	-- container open path already enforces the blacklist via the
+	-- `playerInventory.containerSlot` check below, but backpackPreview moves
+	-- skip that path because we never opened the container.
+	if data.toType == 'backpackPreview' then
+		local fromItem = fromInventory.items[data.fromSlot]
+		if fromItem and fromItem.metadata and fromItem.metadata.container then
+			return
+		end
 	end
 
     if data.toType == 'inspect' or data.fromType == 'inspect' then return end
@@ -1902,6 +2098,14 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
         end
 
         if data.toType == 'newdrop' then
+            -- atlas_backpacks: bag → newdrop has its own helper that knows the
+            -- source isn't the player and updates the bag's container weight
+            -- through Inventory.ContainerWeight instead of touching
+            -- playerInventory.weight directly.
+            if data.fromType == 'backpackPreview' then
+                return dropItemFromBag(source, playerInventory, fromInventory, fromData, data)
+            end
+            if not fromInventory.player then return false end
             return dropItem(source, fromInventory, fromData, data)
         end
 
@@ -1915,6 +2119,27 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 				containerItem = playerInventory.items[playerInventory.containerSlot]
 			end
 
+			-- atlas_backpacks third-window path: the bag is resolved server-side
+			-- by `backpackPreview` but never goes through openInventory(), so
+			-- `playerInventory.containerSlot` is nil and the block above misses it.
+			-- Without this, swaps through the third window skip ContainerWeight,
+			-- and the bag's slot weight never reflects what's inside it.
+			if not container and not sameInventory
+				and (data.fromType == 'backpackPreview' or data.toType == 'backpackPreview') then
+				local bagInv = fromInventory.type == 'container' and fromInventory
+					or toInventory.type == 'container' and toInventory
+					or nil
+				if bagInv then
+					for _, slotData in pairs(playerInventory.items) do
+						if slotData and slotData.metadata and slotData.metadata.container == bagInv.id then
+							container = bagInv
+							containerItem = slotData
+							break
+						end
+					end
+				end
+			end
+
 			local hookPayload = {
 				source = source,
 				fromInventory = fromInventory.id,
@@ -1926,14 +2151,18 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 				count = data.count,
 			}
 
-			if toData and ((toData.name ~= fromData.name) or not toData.stack or (not table.matches(toData.metadata, fromData.metadata)) or hasDifferentDurability(toData.metadata, fromData.metadata)) then
+			if toData and ((toData.name ~= fromData.name) or not toData.stack or not canStackMetadata(toData.metadata, fromData.metadata)) then
 				-- Swap items
 				local toWeight = not sameInventory and (toInventory.weight - toData.weight + fromData.weight) or 0
 				local fromWeight = not sameInventory and (fromInventory.weight + toData.weight - fromData.weight) or 0
 				hookPayload.action = 'swap'
 
 				if not sameInventory then
-					if (toWeight <= toInventory.maxWeight and fromWeight <= fromInventory.maxWeight) then
+					-- Items coming from the player's own inventory into a bag only LOWER
+					-- their weight (contents count at weightFactor), so never gate those —
+					-- only gate items entering the bag from outside (stash/ground/vendor).
+					local containerFits = toInventory.type ~= 'container' or not container or fromInventory.id == playerInventory.id or containerFitsPlayer(playerInventory, containerItem, toWeight)
+					if (toWeight <= toInventory.maxWeight and fromWeight <= fromInventory.maxWeight and containerFits) then
 						local hooks <close> = TriggerEventHooks('swapItems', hookPayload)
 
 						if not hooks.success then return end
@@ -1964,10 +2193,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 						toInventory.weight = toWeight
 						toData, fromData = Inventory.SwapSlots(fromInventory, toInventory, data.fromSlot, data.toSlot) --[[@as table]]
 
-						if server.loglevel > 0 then
-							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s" for %sx %s'):format(fromData.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id, toData.count, toData.name))
-						end
-
+						-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 						pcall(function()
 							local fromItemObj = Items(fromData.name)
 							local toItemObj = Items(toData.name)
@@ -1991,14 +2217,15 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 					toData, fromData = Inventory.SwapSlots(fromInventory, toInventory, data.fromSlot, data.toSlot)
 				end
 
-			elseif toData and toData.name == fromData.name and table.matches(toData.metadata, fromData.metadata) and not hasDifferentDurability(toData.metadata, fromData.metadata) then
+			elseif toData and toData.name == fromData.name and canStackMetadata(toData.metadata, fromData.metadata) then
 				-- Stack items
 				toData.count += data.count
 				fromData.count -= data.count
 				local toSlotWeight = Inventory.SlotWeight(Items(toData.name), toData)
 				local totalWeight = toInventory.weight - toData.weight + toSlotWeight
 
-				if fromInventory.type == 'container' or sameInventory or totalWeight <= toInventory.maxWeight then
+				local containerFits = toInventory.type ~= 'container' or not container or fromInventory.id == playerInventory.id or containerFitsPlayer(playerInventory, containerItem, totalWeight)
+				if fromInventory.type == 'container' or sameInventory or (totalWeight <= toInventory.maxWeight and containerFits) then
 					hookPayload.action = 'stack'
 
 					local hooks <close> = TriggerEventHooks('swapItems', hookPayload)
@@ -2009,6 +2236,8 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 
 						return
 					end
+
+					mergeStackDurability(toData.metadata, fromData.metadata)
 
 					local fromSlotWeight = Inventory.SlotWeight(Items(fromData.name), fromData)
 					toData.weight = toSlotWeight
@@ -2027,10 +2256,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 							TriggerClientEvent('ox_inventory:itemNotify', toInventory.id, { toData, 'ui_added', data.count })
 						end
 
-						if server.loglevel > 0 then
-							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id))
-						end
-
+						-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 						pcall(function()
 							local itemObj = Items(fromData.name)
 							local targetId = (toOtherPlayer and toInventory.id) or (fromOtherPlayer and fromInventory.id) or nil
@@ -2056,7 +2282,8 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 				toData.slot = data.toSlot
 				toData.weight = Inventory.SlotWeight(Items(toData.name), toData)
 
-				if fromInventory.type == 'container' or sameInventory or (toInventory.weight + toData.weight <= toInventory.maxWeight) then
+				local containerFits = toInventory.type ~= 'container' or not container or fromInventory.id == playerInventory.id or containerFitsPlayer(playerInventory, containerItem, toInventory.weight + toData.weight)
+				if fromInventory.type == 'container' or sameInventory or ((toInventory.weight + toData.weight) <= toInventory.maxWeight and containerFits) then
 					hookPayload.action = 'move'
 
 					local hooks <close> = TriggerEventHooks('swapItems', hookPayload)
@@ -2091,10 +2318,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 							TriggerClientEvent('ox_inventory:itemNotify', toInventory.id, { fromData, 'ui_added', data.count })
 						end
 
-						if server.loglevel > 0 then
-							lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, fromData.name, fromInventory.owner and fromInventory.label or fromInventory.id, toInventory.owner and toInventory.label or toInventory.id))
-						end
-
+						-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 						pcall(function()
 							local itemObj = Items(fromData.name)
 							local targetId = (toOtherPlayer and toInventory.id) or (fromOtherPlayer and fromInventory.id) or nil
@@ -2220,6 +2444,16 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 					weaponSlot = data.toSlot
 					fromInventory.weapon = weaponSlot
 				end
+			end
+
+			-- atlas_backpacks third window: the bag container has no openedBy
+			-- entry for the player (we never went through openInventory), so
+			-- the syncSlotsWithClients pass above doesn't reach the React
+			-- side's `thirdInventory` state. Push a refresh explicitly so the
+			-- panel reflects the swap immediately rather than waiting on the
+			-- 1.5s poller.
+			if data.fromType == 'backpackPreview' or data.toType == 'backpackPreview' then
+				TriggerClientEvent('atlas_backpacks:refreshThirdPanel', source)
 			end
 
 			return containerItem and containerItem.weight or true, resp, weaponSlot
@@ -2400,7 +2634,7 @@ function Inventory.GetSlotForItem(inv, itemName, metadata)
 	for i = 1, inventory.slots do
 		local slotData = items[i]
 
-		if item.stack and slotData and slotData.name == item.name and table.matches(slotData.metadata, metadata) and not hasDifferentDurability(slotData.metadata, metadata) then
+		if item.stack and slotData and slotData.name == item.name and canStackMetadata(slotData.metadata, metadata) then
 			return i
 		elseif not item.stack and not slotData and not emptySlot then
 			emptySlot = i
@@ -2722,10 +2956,7 @@ local function giveItem(playerId, slot, target, count)
 		if hooks.success then
 			if Inventory.AddItem(toInventory, item, count, data.metadata, toSlot) then
 				if Inventory.RemoveItem(fromInventory, item, count, data.metadata, slot) then
-					if server.loglevel > 0 then
-						lib.logger(fromInventory.owner, 'giveItem', ('"%s" gave %sx %s to "%s"'):format(fromInventory.label, count, data.name, toInventory.label))
-					end
-
+					-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 					pcall(function()
 						local targetId = toInventory.player and toInventory.id or nil
 						local itemObj = Items(data.name)
@@ -2813,12 +3044,12 @@ local function updateWeapon(source, action, value, slot, specialAmmo)
 			elseif action == 'throw' then
 				if not Inventory.RemoveItem(inventory, weapon.name, 1, weapon.metadata, weapon.slot) then return end
 			elseif action == 'component' then
-				if type == 'number' then
+				if vtype == 'number' then
 					if not Inventory.AddItem(inventory, weapon.metadata.components[value], 1) then return false end
 
 					table.remove(weapon.metadata.components, value)
 					weapon.weight = Inventory.SlotWeight(item, weapon)
-				elseif type == 'string' then
+				elseif vtype == 'string' then
 					local component = inventory.items[tonumber(value)]
 
 					if not Inventory.RemoveItem(inventory, component.name, 1) then return false end

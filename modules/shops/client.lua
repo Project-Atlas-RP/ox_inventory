@@ -243,7 +243,11 @@ local function refreshShops()
                                     name = shopid,
                                     icon = shop.icon or 'fas fa-shopping-basket',
                                     label = label,
-                                    groups = shop.groups,
+                                    -- No option-level groups: ox_target's group system doesn't know
+                                    -- ox_inventory's synthetic groups (police_armoury / medical_cabinet),
+                                    -- so it would hide the prompt. Access is already gated by
+                                    -- hasShopAccess (zone creation, knows synthetic groups) above and by
+                                    -- the server openShop callback on purchase.
                                     onSelect = function()
                                         client.openInventory('shop', { id = i, type = type })
                                     end,
@@ -275,7 +279,8 @@ local function refreshShops()
 									name = shopid,
 									icon = shop.icon or 'fas fa-shopping-basket',
 									label = label,
-									groups = shop.groups,
+									-- See box-zone note: ox_target can't evaluate the synthetic shop
+									-- groups; gating is handled by hasShopAccess + server openShop.
 									onSelect = function()
 										client.openInventory('shop', { id = i, type = type })
 									end,
@@ -326,7 +331,7 @@ CreateThread(function()
 		local currentHour = GetClockHours()
 		if currentHour ~= lastHour then
 			lastHour = currentHour
-			print(('[ShopHours] In-game time changed to %d:00 - Refreshing shop availability'):format(currentHour))
+			lib.print.debug(('[ShopHours] In-game time changed to %d:00 - Refreshing shop availability'):format(currentHour))
 			
 			-- Check each shop individually to manage NPCs based on hours
 			for i = 1, #shops do
@@ -338,11 +343,11 @@ CreateThread(function()
 					-- If shop is now closed and has an NPC, remove it
 					if not isOpen and shop.entity then
 						onExitShop(shop)
-						print(('[ShopHours] Removed NPC for closed shop: %s'):format(shop.type))
+						lib.print.debug(('[ShopHours] Removed NPC for closed shop: %s'):format(shop.type))
 					-- If shop is now open and doesn't have an NPC, spawn it
 					elseif isOpen and not shop.entity and shop.ped then
 						onEnterShop(shop)
-						print(('[ShopHours] Spawned NPC for opened shop: %s'):format(shop.type))
+						lib.print.debug(('[ShopHours] Spawned NPC for opened shop: %s'):format(shop.type))
 					end
 				end
 			end
@@ -360,6 +365,11 @@ CreateThread(function()
 
 	if type(runtimeShopDefinitions) == 'table' then
 		buildShopTypes(runtimeShopDefinitions)
+		-- Build the shop targets now that definitions are loaded. This callback
+		-- races setPlayerInventory's refresh on join; if it resolved AFTER that
+		-- refresh, shopTypes was still empty then and nothing rebuilt the zones
+		-- (group-gated shops like the armoury/medicine cabinet stayed missing).
+		refreshShops()
 	end
 end)
 

@@ -8,6 +8,7 @@ import { useExitListener } from '../../hooks/useExitListener';
 import type { Inventory as InventoryProps } from '../../typings';
 import RightInventory from './RightInventory';
 import LeftInventory from './LeftInventory';
+import ThirdInventory from './ThirdInventory';
 import Tooltip from '../utils/Tooltip';
 import { closeTooltip } from '../../store/tooltip';
 import InventoryContext from './InventoryContext';
@@ -50,6 +51,15 @@ const Inventory: React.FC = () => {
           <Tooltip />
           <InventoryContext />
         </div>
+      </Fade>
+      {/* Third panel renders outside .inventory-wrapper so it doesn't get
+          captured by custom.js's `:first-of-type` / `:last-of-type` selectors.
+          Wrapped in Fade(in=inventoryVisible) so it hides when the player
+          closes the inventory (tab / F2). The "wants to be open" state lives
+          in Redux (`thirdInventory`) and is NOT cleared on close, so when the
+          inventory reopens the panel comes back. */}
+      <Fade in={inventoryVisible}>
+        <ThirdInventory />
       </Fade>
       <InventoryHotbar />
     </>

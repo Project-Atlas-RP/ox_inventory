@@ -249,7 +249,7 @@ lib.callback.register('ox_inventory:openShop', function(source, data)
 			return
 		end
 
-		shop, left.currentShopSlots = buildVisibleShop(shop, left)
+		shop, playerInv.currentShopSlots = buildVisibleShop(shop, playerInv)
 
 		-- Check if the player can purchase any items (license check)
 		-- If all items require a license the player doesn't have, deny access
@@ -259,7 +259,7 @@ lib.callback.register('ox_inventory:openShop', function(source, data)
 
 			for _, item in pairs(shop.items) do
 				if item.license then
-					if server.hasLicense(left, item.license) then
+					if server.hasLicense(playerInv, item.license) then
 						hasAnyPurchasableItem = true
 						break
 					else
@@ -522,15 +522,16 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 				local priceDisplay = math.groupdigits(price)
 				local message = locale('purchased_for', count, metadata?.label or fromItem.label, pricePrefix, (pricePrefix ~= '' and priceDisplay or priceDisplay) .. priceSuffix)
 
-				if server.loglevel > 0 then
-					if server.loglevel > 1 or fromData.price >= 500 then
-						lib.logger(playerInv.owner, 'buyItem', ('"%s" %s'):format(playerInv.label, message:lower()), ('shop:%s'):format(shop.label))
-					end
-				end
+				-- Atlas patch: lib.logger removed. atlas_logs is the canonical sink.
 				pcall(function()
-					exports.atlas_logs:log('Inventory', 'Item Purchased', playerInv.label .. ' purchased ' .. count .. 'x ' .. (metadata and metadata.label or fromItem.label) .. ' from ' .. shop.label .. ' for ' .. pricePrefix .. math.groupdigits(price) .. priceSuffix, 'info', source, {
-						items = {{ name = fromData.name, label = fromItem.label or fromData.name, count = count, metadata = metadata or nil }}
-					})
+					exports.atlas_logs:log('Inventory', 'Item Purchased',
+						playerInv.label .. ' purchased ' .. count .. 'x ' .. (metadata and metadata.label or fromItem.label) .. ' from ' .. shop.label .. ' for ' .. pricePrefix .. math.groupdigits(price) .. priceSuffix,
+						'info', source, {
+							items = {{ name = fromData.name, label = fromItem.label or fromData.name, count = count, metadata = metadata or nil }},
+							shop = shop.label,
+							price = price,
+							unitPrice = fromData.price,
+						})
 				end)
 
 				local updatedShopItem = nil

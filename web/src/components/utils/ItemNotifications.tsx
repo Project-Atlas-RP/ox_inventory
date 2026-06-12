@@ -41,6 +41,9 @@ const ItemNotification = React.forwardRef(
           <div className="item-notification-action-box">
             <p>{props.item.text}</p>
           </div>
+          {slotItem.metadata?.grade && (
+            <div className="item-slot-quality">{slotItem.metadata.grade}</div>
+          )}
           <div className="inventory-slot-label-box">
             <div className="inventory-slot-label-text">{slotItem.metadata?.label || Items[slotItem.name]?.label}</div>
           </div>

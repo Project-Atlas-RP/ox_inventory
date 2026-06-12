@@ -8,7 +8,13 @@ import { useIntersection } from '../../hooks/useIntersection';
 
 const PAGE_SIZE = 30;
 
-const InventoryGrid: React.FC<{ inventory: Inventory }> = ({ inventory }) => {
+interface InventoryGridProps {
+  inventory: Inventory;
+  headerActions?: React.ReactNode;
+  readOnly?: boolean;
+}
+
+const InventoryGrid: React.FC<InventoryGridProps> = ({ inventory, headerActions, readOnly }) => {
   const weight = useMemo(
     () => (inventory.maxWeight !== undefined ? Math.floor(getTotalWeight(inventory.items) * 1000) / 1000 : 0),
     [inventory.maxWeight, inventory.items]
@@ -25,15 +31,24 @@ const InventoryGrid: React.FC<{ inventory: Inventory }> = ({ inventory }) => {
   }, [entry]);
   return (
     <>
-      <div className="inventory-grid-wrapper" style={{ pointerEvents: isBusy ? 'none' : 'auto' }}>
+      <div
+        className={`inventory-grid-wrapper${readOnly ? ' inventory-grid-wrapper--readonly' : ''}`}
+        style={{ pointerEvents: isBusy ? 'none' : 'auto' }}
+      >
         <div>
           <div className="inventory-grid-header-wrapper">
             <p>{inventory.label}</p>
-            {inventory.maxWeight && (
-              <p>
-                {weight / 1000}/{inventory.maxWeight / 1000}kg
-              </p>
-            )}
+            <div className="inventory-grid-header-right">
+              {/* Actions sit BEFORE the weight so the weight stays glued to
+                  the right edge — appearing or hiding the bag button doesn't
+                  shift the kg readout left/right. */}
+              {headerActions && <div className="inventory-grid-header-actions">{headerActions}</div>}
+              {inventory.maxWeight && (
+                <p>
+                  {weight / 1000}/{inventory.maxWeight / 1000}kg
+                </p>
+              )}
+            </div>
           </div>
           <WeightBar percent={inventory.maxWeight ? (weight / inventory.maxWeight) * 100 : 0} />
         </div>
@@ -47,6 +62,7 @@ const InventoryGrid: React.FC<{ inventory: Inventory }> = ({ inventory }) => {
                 inventoryType={inventory.type}
                 inventoryGroups={inventory.groups}
                 inventoryId={inventory.id}
+                readOnly={readOnly}
               />
             ))}
           </>
