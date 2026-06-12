@@ -13,12 +13,8 @@ export default defineConfig({
     // and the LICENSE (all referenced by fxmanifest) across rebuilds.
     // Vite's default `emptyOutDir: true` wipes the entire build/ folder.
     emptyOutDir: false,
-    rolldownOptions: {
-      output: {
-        assetFileNames: 'assets/[name][extname]',
-        entryFileNames: 'assets/[name].js',
-        chunkFileNames: 'assets/[name].js',
-      },
-    },
+    // Atlas: keep rolldown's default hashed output names (index-<hash>.js).
+    // FiveM CEF caches aggressively; upstream's stable names (assets/index.js)
+    // would serve stale bundles after updates.
   },
 });
