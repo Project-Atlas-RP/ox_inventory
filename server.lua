@@ -113,7 +113,7 @@ end
 
 ---@param source number
 ---@param invType string
----@param data? string|number|table
+---@param data? string | number | table | vector3
 ---@param ignoreSecurityChecks boolean?
 ---@return table | false | nil, table | false | nil, string?
 local function openInventory(source, invType, data, ignoreSecurityChecks)
@@ -570,11 +570,11 @@ lib.callback.register('ox_inventory:useItem', function(source, itemName, slot, m
                         local emptySlot = Inventory.GetEmptySlot(inventory)
 
                         if emptySlot then
-                            local newItem = Inventory.SetSlot(inventory, item, 1, table.deepclone(data.metadata),
+                            local ok, newItem = Inventory.SetSlot(inventory, item, 1, table.deepclone(data.metadata),
                                 emptySlot)
 
-                            if newItem then
-                                Items.UpdateDurability(inventory, newItem, item, durability)
+                            if ok and newItem then
+                                Items.UpdateDurability(inventory, newItem --[[@as SlotWithItem]], item, durability)
                             end
                         end
 
@@ -871,6 +871,14 @@ lib.addCommand('viewinv', {
 }, function(source, args)
     Inventory.InspectInventory(source, tonumber(args.invId) or args.invId)
 end)
+
+lib.registerHook('ox_lib:setPlayerState', nil, {
+    key = 'invBusy'
+})
+
+lib.registerHook('ox_lib:setPlayerState', nil, {
+    key = 'canSteal'
+})
 
 -- Alcohol items route through atlas_consumables, which manages the interactive
 -- multi-sip session, charge metadata, and drunk effect stacking. We return false

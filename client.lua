@@ -30,7 +30,6 @@ local invBusy = true
 
 ---@type boolean?
 local invOpen = false
-local plyState = LocalPlayer.state
 local IsPedCuffed = IsPedCuffed
 local playerPed = cache.ped
 
@@ -69,9 +68,9 @@ lib.onCache('ped', function(ped)
 	Utils.WeaponWheel()
 end)
 
-plyState:set('invBusy', true, true)
-plyState:set('invHotkeys', false, false)
-plyState:set('canUseWeapons', false, false)
+client.player:set('invBusy', true)
+client.player:set('invHotkeys', false)
+client.player:set('canUseWeapons', false)
 
 -- Check if player is in a restricted state (cuffed, dead, laststand)
 -- Used to prevent hotbar usage while incapacitated
@@ -352,7 +351,7 @@ function client.openInventory(inv, data)
         end
     end
 
-    plyState.invOpen = true
+	client.player:set('invOpen', true)
 
     SetInterval(client.interval, 100)
     SetNuiFocus(true, true)
@@ -418,7 +417,7 @@ exports('openInventory', client.openInventory)
 RegisterNetEvent('ox_inventory:forceOpenInventory', function(left, right)
 	if source == '' then return end
 
-	plyState.invOpen = true
+	client.player:set('invOpen', true)
 
 	SetInterval(client.interval, 100)
 	SetNuiFocus(true, true)
@@ -636,7 +635,7 @@ local function useSlot(slot, noAnim)
 		if data.effect then
 			data:effect({name = item.name, slot = item.slot, metadata = item.metadata})
 		elseif data.weapon then
-			if EnableWeaponWheel or not plyState.canUseWeapons then return end
+			if EnableWeaponWheel or not client.player:get('canUseWeapons') then return end
 
 			if IsCinematicCamRendering() then SetCinematicModeActive(false) end
 
@@ -1092,7 +1091,7 @@ function client.closeInventory()
 		TriggerServerEvent('ox_inventory:closeInventory')
 
 		currentInventory = defaultInventory
-		plyState.invOpen = false
+		client.player:set('invOpen', false)
 		defaultInventory.coords = nil
 
 		-- atlas_backpacks: reset swap state for the next open. thirdPanelOpen
@@ -1601,8 +1600,8 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 	client.interval = SetInterval(function()
         local canSteal = canOpenTarget(playerPed)
 
-        if canSteal ~= plyState.canSteal then
-            plyState:set('canSteal', canSteal, true)
+        if canSteal ~= client.player:get('canSteal') then
+            client.player:setr('canSteal', canSteal)
         end
 
 		if invOpen == false then
@@ -1625,7 +1624,7 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
                         or 1.8) + 0.2
 
 					if currentInventory.type == 'otherplayer' then
-						local id = GetPlayerFromServerId(currentInventory.id)
+						local id = GetPlayerFromServerId(currentInventory.id --[[@as number]])
 						local ped = GetPlayerPed(id)
 						local pedCoords = GetEntityCoords(ped)
 
@@ -1804,7 +1803,7 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 							while IsPedPlantingBomb(playerPed) do Wait(0) end
 
 							TriggerServerEvent('ox_inventory:updateWeapon', 'throw', nil, weapon.slot)
-							plyState:set('invBusy', false, true)
+							client.player:setr('invBusy', false)
 
 							currentWeapon = nil
 
@@ -1820,10 +1819,10 @@ RegisterNetEvent('ox_inventory:setPlayerInventory', function(currentDrops, inven
 		end
 	end)
 
-	plyState:set('invBusy', false, true)
-	plyState:set('invOpen', false, false)
-	plyState:set('invHotkeys', true, false)
-	plyState:set('canUseWeapons', true, false)
+	client.player:setr('invBusy', false)
+	client.player:set('invOpen', false)
+	client.player:set('invHotkeys', true)
+	client.player:set('canUseWeapons', true)
 	collectgarbage('collect')
 end)
 
@@ -1836,8 +1835,7 @@ end)
 RegisterNetEvent('ox_inventory:viewInventory', function(left, right)
 	if source == '' then return end
 
-	plyState.invOpen = true
-
+	client.player:set('invOpen', true)
 	SetInterval(client.interval, 100)
 	SetNuiFocus(true, true)
 	SetNuiFocusKeepInput(true)
@@ -1979,8 +1977,8 @@ RegisterNUICallback('giveItem', function(data, cb)
             local option = nearbyPlayers[i]
 
             if isGiveTargetValid(option.ped, option.coords) then
-                local playerName = GetPlayerName(option.id)
                 option.id = GetPlayerServerId(option.id)
+                local playerName = Utils.getPlayerName(option.id)
                 ---@diagnostic disable-next-line: inject-field
                 option.label = ('[%s] %s'):format(option.id, playerName)
                 n += 1

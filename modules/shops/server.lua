@@ -433,7 +433,7 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 			end
 
 			if fromData.count then
-				if fromData.count == 0 then
+				if fromData.count < 1 then
 					return false, false, { type = 'error', description = locale('shop_nostock') }
 				elseif data.count > fromData.count then
 					data.count = fromData.count
@@ -475,6 +475,10 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 					return false, false, canAfford
 				end
 
+				if fromData.count then
+					fromData.count -= count
+				end
+
 				local hooks <close> = TriggerEventHooks('buyItem', {
 					source = source,
 					shopType = shopType,
@@ -490,17 +494,28 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 					currency = currency,
 				})
 
-				if not hooks.success then return false end
+				if not hooks.success or not Inventory.SetSlot(playerInv, fromItem, count, metadata, data.toSlot) then
+					if fromData.count then
+						fromData.count += count
+					end
 
-				if not removeCurrency(playerInv, currency, price) then
-					return false, false, { type = 'error', description = locale('cannot_afford', ('%s%s'):format((currency == 'money' and locale('$') or math.groupdigits(price)), (currency == 'money' and math.groupdigits(price) or ' '..Items(currency).label))) }
+					return false
 				end
 
-				Inventory.SetSlot(playerInv, fromItem, count, metadata, data.toSlot)
 				playerInv.weight = newWeight
 
-				if fromData.count then
-					shop.items[data.fromSlot].count = fromData.count - count
+				if not removeCurrency(playerInv, currency, price) then
+					-- Atlas: upstream ignores the removeCurrency result, but a yielding
+					-- buyItem hook can let the buyer spend their currency between the
+					-- canAffordItem check and here. Take the granted item back instead
+					-- of selling it for free.
+					Inventory.RemoveItem(playerInv, fromItem, count, metadata, data.toSlot)
+
+					if fromData.count then
+						fromData.count += count
+					end
+
+					return false, false, { type = 'error', description = locale('cannot_afford', ('%s%s'):format((currency == 'money' and locale('$') or math.groupdigits(price)), (currency == 'money' and math.groupdigits(price) or ' '..Items(currency).label))) }
 				end
 
 				if server.syncInventory then server.syncInventory(playerInv) end
